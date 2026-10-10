@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Burp Suite",
+    "desc": "An integrated platform for web application security testing, serving as the primary proxy and packet-capture tool for this penetration test."
+  },
+  {
+    "name": "SQLMap",
+    "desc": "An open-source tool for detecting and exploiting SQL injection vulnerabilities."
+  },
+  {
+    "name": "Nmap",
+    "desc": "A network port scanning and service identification tool."
+  },
+  {
+    "name": "Nuclei",
+    "desc": "A YAML-template-based vulnerability scanner used for bulk fingerprinting and vulnerability verification."
+  },
+  {
+    "name": "cURL / httpie",
+    "desc": "Command-line tools for crafting HTTP requests and analyzing responses."
+  },
+  {
+    "name": "Wappalyzer / EHole",
+    "desc": "Web application framework and fingerprint identification tools."
+  },
+  {
+    "name": "In-house POC Library",
+    "desc": "An internally maintained library of vulnerability verification scripts, used together with a local vulnerability database index."
+  }
+]

@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Burp Suite",
+    "desc": "用于 Web 应用攻击测试的集成平台，作为本次渗透测试的核心代理与抓包工具。"
+  },
+  {
+    "name": "SQLMap",
+    "desc": "用于检测与利用 SQL 注入漏洞的开源工具。"
+  },
+  {
+    "name": "Nmap",
+    "desc": "网络端口扫描与服务识别工具。"
+  },
+  {
+    "name": "Nuclei",
+    "desc": "基于 YAML 模板的漏洞扫描器，用于批量指纹与漏洞验证。"
+  },
+  {
+    "name": "cURL / httpie",
+    "desc": "命令行 HTTP 请求构造与响应分析工具。"
+  },
+  {
+    "name": "Wappalyzer / EHole",
+    "desc": "Web 应用框架与指纹识别工具。"
+  },
+  {
+    "name": "自研 POC 库",
+    "desc": "内部维护的漏洞验证脚本库，配合本地漏洞库索引使用。"
+  }
+]

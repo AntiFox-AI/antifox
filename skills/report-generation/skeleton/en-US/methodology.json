@@ -1,0 +1,37 @@
+{
+  "intro": "The penetration testing service workflow follows the internationally recognized Penetration Testing Execution Standard (PTES), ensuring that every engagement is delivered in a standardized, high-quality manner. The workflow comprises the following 8 phases:",
+  "phases": [
+    {
+      "name": "Pre-engagement Interactions",
+      "desc": "Project initiation and preparation: both parties agree on the testing scope and specific test items, and authorization confirmation, personnel, and tooling are finalized."
+    },
+    {
+      "name": "Intelligence Gathering",
+      "desc": "Open-source information collection, asset mapping, and site structure analysis around the authorized assets, culminating in the penetration testing implementation plan."
+    },
+    {
+      "name": "Threat Modeling",
+      "desc": "Analysis of business assets and processes, assessment of threat actors and their capabilities, and identification of the primary attack surface and risk paths."
+    },
+    {
+      "name": "Vulnerability Analysis",
+      "desc": "Correlation analysis of scanner results combined with manual verification, reproduction in a controlled environment, and derivation of analytical conclusions."
+    },
+    {
+      "name": "Exploitation",
+      "desc": "Based on the analysis results, the optimal attack path is selected to perform low-impact, precise verification and confirm the authenticity of each risk."
+    },
+    {
+      "name": "Post-Exploitation",
+      "desc": "Within the authorized scope, assessment of lateral movement, privilege escalation, and reachability of sensitive data following successful exploitation."
+    },
+    {
+      "name": "Reporting",
+      "desc": "Consolidation of vulnerability details, evidence, CVSS scoring, and risk ratings into a deliverable penetration test report."
+    },
+    {
+      "name": "Remediation Support",
+      "desc": "Working with the client to complete remediation based on the report, and conducting retesting where required to confirm that vulnerabilities are fully closed."
+    }
+  ]
+}

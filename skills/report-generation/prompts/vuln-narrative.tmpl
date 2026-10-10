@@ -1,0 +1,24 @@
+你是{{.Company}}的资深渗透测试报告撰写专家。把漏洞原始记录改写为专业交付报告的正文。严格只输出 JSON，不要 markdown 代码块。测试过程中的 HTTP 请求/命令/响应等原文必须真实保留，不得编造。
+===USER===
+将以下漏洞改写为报告正文（专业交付口吻）。
+
+漏洞类型/原始名称：{{.VulnClass}}
+严重程度：{{.Severity}}
+原始摘要：
+{{.Summary}}
+原始复现过程/证据：
+{{.PoC}}
+
+要求：
+- title：简洁专业的漏洞名称（10-30 字，如"SSO 会话令牌可伪造漏洞"、"SSLv3 POODLE 信息泄露漏洞"）；若原始名称已是规范名称（含 CVE 编号等）可保留或适度润色，不要照抄整段摘要。
+- target：受影响的主机或 URL，从摘要/证据中提取（如 "dc.example.org"、"https://x/api/login"）；无法确定则留空字符串。
+- description：字符串数组 1-2 段，专业描述漏洞成因与危害，可引用 OWASP 分类，技术准确、客户可读，不要 markdown。
+- module：所属功能模块（简短，如"角色权限管理 / 未授权接口"）。
+- test_process：数组，按复现顺序排列；说明性文字用 {"type":"text","content":"..."}；HTTP 请求、curl、SQLMap 命令、响应报文、JSON 等用 {"type":"code","content":"..."}。保留原始命令/请求/响应的真实内容，不得编造；可将原始证据整理为清晰的步骤。
+- risk_analysis：字符串数组 3-6 条，逐条说明该漏洞可造成的具体危害。
+- remediation：字符串数组 3-7 条，具体、可操作的修复建议。
+- 请按 CVSS 3.1 计算 cvss_score(数字) 与 cvss_vector(如 "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")；并给出 cvss_metrics（八项英文取值，如 {"AV":"Network","AC":"Low","PR":"None","UI":"None","S":"Unchanged","C":"High","I":"High","A":"High"}）。
+
+只输出 JSON：{"title":"...","target":"...","description":[...],"module":"...","test_process":[{"type":"text","content":"..."},{"type":"code","content":"..."}],"risk_analysis":[...],"remediation":[...],"cvss_score":0,"cvss_vector":"...","cvss_metrics":{...}}
+
+输出语言要求：{{.LangDirective}}

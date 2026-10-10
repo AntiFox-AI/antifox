@@ -1,0 +1,277 @@
+[
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Brute Force",
+    "desc": "Commonly found in login systems; large-scale attempts of login credentials against a known username."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "SMS Bombing",
+    "desc": "Replaying the SMS verification-code request to flood a target with text messages (SMS bombing)."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Authentication Bypass",
+    "desc": "The application lacks a valid token mechanism, allowing authentication information to be modified to bypass server-side authorization."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Malicious Registration",
+    "desc": "The user registration function can be abused by an attacker to perform bulk registration."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Session Fixation",
+    "desc": "The session ID does not change before and after login, creating a session-hijacking risk."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Plaintext Password Transmission",
+    "desc": "Usernames or passwords are transmitted without encryption, making them susceptible to sniffing and interception."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Password Recovery Logic Flaw",
+    "desc": "Logic flaws in the password recovery flow can be exploited to illegitimately reset a password."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "OAuth Authentication Flaw",
+    "desc": "Incomplete OAuth authentication allows unauthorized login to other users' accounts."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Weak Password",
+    "desc": "Discovery of weak passwords in the system through brute forcing, guessing, and similar techniques."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Broken Authentication \u0026 Session Management",
+    "desc": "Vulnerabilities in the authentication and session management functions, including missing session timeout settings."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "CAPTCHA Functional Flaw",
+    "desc": "The CAPTCHA does not expire and can be reused, enabling brute-force attacks."
+  },
+  {
+    "category": "Authentication \u0026 Session Management",
+    "name": "Username Enumeration",
+    "desc": "Different accounts return different error messages, allowing enumeration of valid accounts in the system."
+  },
+  {
+    "category": "Client-Side Security",
+    "name": "CORS Cross-Origin Resource Sharing Vulnerability",
+    "desc": "Improper CORS configuration can be exploited to steal users' sensitive data."
+  },
+  {
+    "category": "Client-Side Security",
+    "name": "Flash Cross-Domain Access Vulnerability",
+    "desc": "An incorrect crossdomain.xml policy leads to cross-domain security issues."
+  },
+  {
+    "category": "Client-Side Security",
+    "name": "Outdated jQuery Version",
+    "desc": "An outdated jQuery version introduces cross-site scripting and other known security vulnerabilities."
+  },
+  {
+    "category": "Client-Side Security",
+    "name": "JSONP Hijacking",
+    "desc": "Cross-domain data transfer lacks authorization checks, allowing sensitive data to be read by malicious scripts."
+  },
+  {
+    "category": "Client-Side Security",
+    "name": "Cross-Site Request Forgery (CSRF)",
+    "desc": "Forces an authenticated user to perform unintended actions within a web application."
+  },
+  {
+    "category": "Client-Side Security",
+    "name": "Cross-Site Scripting (XSS)",
+    "desc": "Injects malicious scripts into web pages, executing malicious code when the page is viewed."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "Code Injection",
+    "desc": "An attacker submits code as input, which the server processes as dynamic code."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "LDAP Injection",
+    "desc": "Leverages LDAP query syntax to disclose sensitive user and host information."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "Command Injection",
+    "desc": "Injects OS commands via an HTTP request to execute system commands on the server."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "XFF Injection",
+    "desc": "Performs SQL injection by manipulating the X-Forwarded-For header."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "SSI Injection",
+    "desc": "May allow injection of code into HTML pages and even remote code execution."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "SQL Injection",
+    "desc": "By inserting SQL queries, an attacker can read or tamper with data, perform administrative operations, or execute system commands."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "XPath Injection",
+    "desc": "Injects elements into an XPath query, potentially bypassing authentication."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "Link or Frame Injection",
+    "desc": "Injects frame or iframe tags containing malicious content."
+  },
+  {
+    "category": "Malicious Input / Injection",
+    "name": "XML External Entity (XXE) Injection",
+    "desc": "XML external entities can be abused to read system files, perform SSRF, and mount other attacks."
+  },
+  {
+    "category": "Access Control",
+    "name": "Local File Inclusion",
+    "desc": "Includes and executes code on the target server to obtain sensitive files or privileges."
+  },
+  {
+    "category": "Access Control",
+    "name": "Vertical Privilege Escalation",
+    "desc": "A low-privilege account can access or operate high-privilege functionality."
+  },
+  {
+    "category": "Access Control",
+    "name": "Unauthorized Access",
+    "desc": "Internal resources or functions can be accessed directly without login or authorization."
+  },
+  {
+    "category": "Access Control",
+    "name": "Arbitrary File Upload",
+    "desc": "Uploading an executable script file to gain the ability to run commands on the server."
+  },
+  {
+    "category": "Access Control",
+    "name": "Arbitrary File Download",
+    "desc": "System files, configuration files, and similar can be browsed or downloaded arbitrarily."
+  },
+  {
+    "category": "Access Control",
+    "name": "Horizontal Privilege Escalation",
+    "desc": "Users at the same privilege level can access or operate other users' resources."
+  },
+  {
+    "category": "Access Control",
+    "name": "Remote File Inclusion",
+    "desc": "Crafting parameters to include remote code that is executed on the server."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Error Page Information Disclosure",
+    "desc": "Error messages contain sensitive server or database information."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Test / Backup File Leak",
+    "desc": "Leftover outdated files, backup pages, and test files are exposed."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": ".git Source Code Leak",
+    "desc": "The .git directory was not removed at deployment, allowing source code to be recovered."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "GitHub Information Leak",
+    "desc": "Sensitive code, keys, and similar are inadvertently made public on GitHub."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "IIS Short Filename Disclosure",
+    "desc": "An IIS file enumeration vulnerability that allows enumeration of files in the root directory."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Absolute Path Disclosure",
+    "desc": "The application discloses its absolute path on the host."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Directory Listing",
+    "desc": "A website configuration flaw results in a browsable directory listing vulnerability."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Sensitive Information Disclosure",
+    "desc": "Configuration files contain sensitive data such as passwords, keys, internal addresses, and employee identifiers."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Sensitive File Leak",
+    "desc": "Program files, configuration files, logs, backups, and database files are exposed."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Default Page Leak",
+    "desc": "Default-installed middleware and frameworks ship with sample pages and documentation."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Directory Traversal",
+    "desc": "An attacker views the website's directory structure and files to mount further attacks."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Residual Intrusion Traces",
+    "desc": "Traces of a prior intrusion remain in the application, such as WebShell files."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "SVN Source Code Leak",
+    "desc": "Source code is obtained through an SVN source code disclosure vulnerability."
+  },
+  {
+    "category": "Information Disclosure",
+    "name": "Web Console Exposure",
+    "desc": "The management console of a web container or database is exposed."
+  },
+  {
+    "category": "Security Misconfiguration",
+    "name": "Insecure HTTP Methods",
+    "desc": "The server enables insecure methods such as TRACE, PUT, and DELETE."
+  },
+  {
+    "category": "Security Misconfiguration",
+    "name": "Server-Side Request Forgery (SSRF)",
+    "desc": "The server makes requests on the attacker's behalf, allowing access to internal-network or local resources."
+  },
+  {
+    "category": "Security Misconfiguration",
+    "name": "Host Header Attack",
+    "desc": "Malicious manipulation of the HTTP Host header to enable phishing, cache poisoning, and similar attacks."
+  },
+  {
+    "category": "Security Misconfiguration",
+    "name": "Slow HTTP DoS Attack",
+    "desc": "Exhausts server resources through slow HTTP requests."
+  },
+  {
+    "category": "Security Misconfiguration",
+    "name": "Unnecessary Web Server Ports Open",
+    "desc": "Default ports beyond the required business ports are left open."
+  },
+  {
+    "category": "Insecure Storage \u0026 Transport",
+    "name": "Insecure Storage",
+    "desc": "Important information is not encrypted or is encrypted with insufficient strength."
+  },
+  {
+    "category": "Insecure Storage \u0026 Transport",
+    "name": "Sensitive Information in HTML",
+    "desc": "HTML pages contain sensitive information."
+  }
+]
