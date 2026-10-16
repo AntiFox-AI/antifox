@@ -1248,6 +1248,34 @@
       "blocked": "block bash: 目标越界 out.evil.example 不在 scope 内",
       "finding": "report_finding: Default Credentials (high) 已落库",
       "intercept": "intercept: mysqldump 命中破坏性规则，等待人工审批"
+    },
+    "tabs": {
+      "system": "系统日志",
+      "audit": "登录与审计"
+    },
+    "audit": {
+      "loadError": "加载审计日志失败",
+      "catAll": "全部类别",
+      "catAuth": "认证",
+      "catRbac": "权限",
+      "catConfig": "配置",
+      "resAll": "全部结果",
+      "resSuccess": "成功",
+      "resFail": "失败",
+      "refresh": "刷新",
+      "rangeLabel": "第 {{from}}–{{to}} 条，共 {{total}} 条",
+      "colTime": "时间",
+      "colActor": "操作者",
+      "colAction": "动作",
+      "colResult": "结果",
+      "colIp": "来源 IP",
+      "colMessage": "说明",
+      "empty": "暂无审计记录。",
+      "first": "首页",
+      "prev": "上一页",
+      "next": "下一页",
+      "last": "末页",
+      "pageLabel": "第 {{page}} / {{pages}} 页"
     }
   },
   "skills": {

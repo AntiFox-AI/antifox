@@ -120,7 +120,15 @@ export const api = {
   initPassword: (password: string) =>
     post<{ token: string }>("/auth/init", { password }),
   changePassword: (oldPassword: string, newPassword: string) =>
-    post<{ ok: boolean }>("/auth/change-password", { old_password: oldPassword, new_password: newPassword }),
+    post<{ ok: boolean; token?: string }>("/auth/change-password", { old_password: oldPassword, new_password: newPassword }).then((r) => {
+      // 改密会作废旧 token（含本次会话）；后端补发一张新 token，这里即时替换本地存储，
+      // 避免当前用户下一次请求被登出（其它设备的旧 token 仍失效）。
+      if (r.token && typeof window !== "undefined") {
+        localStorage.setItem(TOKEN_KEY, r.token);
+        document.cookie = `${TOKEN_KEY}=${encodeURIComponent(r.token)}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+      }
+      return r;
+    }),
 
   // ---- tasks ----
   tasks: () => get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
@@ -583,6 +591,14 @@ export const api = {
   rbacUpdateRole: (id: string, b: { name: string; description: string; scope: string; permissions: string[] }) =>
     put<{ role: RBACRole }>(`/rbac/roles/${id}`, b),
   rbacDeleteRole: (id: string) => del<{ ok: boolean }>(`/rbac/roles/${id}`),
-  auditLogs: (category = "", limit = 50, offset = 0) =>
-    get<{ logs: AuditLog[]; total: number }>(`/audit/logs?category=${category}&limit=${limit}&offset=${offset}`),
+  auditLogs: (opts: { category?: string; action?: string; result?: string; actor?: string; limit?: number; offset?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.category) p.set("category", opts.category);
+    if (opts.action) p.set("action", opts.action);
+    if (opts.result) p.set("result", opts.result);
+    if (opts.actor) p.set("actor", opts.actor);
+    p.set("limit", String(opts.limit ?? 50));
+    p.set("offset", String(opts.offset ?? 0));
+    return get<{ logs: AuditLog[]; total: number }>(`/audit/logs?${p.toString()}`);
+  },
 };

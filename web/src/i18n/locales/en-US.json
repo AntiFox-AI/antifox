@@ -1248,6 +1248,34 @@
       "blocked": "block bash: target out.evil.example is out of scope",
       "finding": "report_finding: Default Credentials (high) saved",
       "intercept": "intercept: mysqldump hit a destructive rule, awaiting manual approval"
+    },
+    "tabs": {
+      "system": "System Logs",
+      "audit": "Login & Audit"
+    },
+    "audit": {
+      "loadError": "Failed to load audit logs",
+      "catAll": "All categories",
+      "catAuth": "Auth",
+      "catRbac": "RBAC",
+      "catConfig": "Config",
+      "resAll": "All results",
+      "resSuccess": "Success",
+      "resFail": "Fail",
+      "refresh": "Refresh",
+      "rangeLabel": "{{from}}–{{to}} of {{total}}",
+      "colTime": "Time",
+      "colActor": "Actor",
+      "colAction": "Action",
+      "colResult": "Result",
+      "colIp": "Source IP",
+      "colMessage": "Message",
+      "empty": "No audit records yet.",
+      "first": "First",
+      "prev": "Prev",
+      "next": "Next",
+      "last": "Last",
+      "pageLabel": "Page {{page}} / {{pages}}"
     }
   },
   "skills": {

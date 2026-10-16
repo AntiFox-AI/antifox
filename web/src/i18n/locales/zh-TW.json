@@ -1248,6 +1248,34 @@
       "blocked": "block bash: 目標越界 out.evil.example 不在 scope 內",
       "finding": "report_finding: Default Credentials (high) 已存檔",
       "intercept": "intercept: mysqldump 命中破壞性規則，等待人工審批"
+    },
+    "tabs": {
+      "system": "系統日誌",
+      "audit": "登入與稽核"
+    },
+    "audit": {
+      "loadError": "載入稽核日誌失敗",
+      "catAll": "全部類別",
+      "catAuth": "認證",
+      "catRbac": "權限",
+      "catConfig": "設定",
+      "resAll": "全部結果",
+      "resSuccess": "成功",
+      "resFail": "失敗",
+      "refresh": "重新整理",
+      "rangeLabel": "第 {{from}}–{{to}} 筆，共 {{total}} 筆",
+      "colTime": "時間",
+      "colActor": "操作者",
+      "colAction": "動作",
+      "colResult": "結果",
+      "colIp": "來源 IP",
+      "colMessage": "說明",
+      "empty": "尚無稽核記錄。",
+      "first": "第一頁",
+      "prev": "上一頁",
+      "next": "下一頁",
+      "last": "最後一頁",
+      "pageLabel": "第 {{page}} / {{pages}} 頁"
     }
   },
   "skills": {

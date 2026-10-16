@@ -657,6 +657,12 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	// stdio MCP 由服务端把 command/args 作为子进程拉起，等价于宿主机命令执行——收归 admin。
+	// 远程 MCP（http/sse）不在宿主机起进程，仍按 mcp:write 开放给 operator。
+	if strings.EqualFold(strings.TrimSpace(m.Transport), "stdio") && !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可创建/修改 stdio 类型的 MCP 服务（会在宿主机启动子进程）")
+		return
+	}
 	isNew := m.ID == 0
 	id, err := pg.SaveMCP(&m)
 	if err != nil {

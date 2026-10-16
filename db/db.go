@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 
 	"antifox/config"
 	_ "github.com/jackc/pgx/v5/stdlib" // pgx database/sql driver ("pgx")
@@ -16,6 +17,14 @@ import (
 
 //go:embed schema.sql
 var schemaSQL string
+
+// 连接池上限（见 Open）。保守取值：单实例部署足够，又给 PG 其它客户端留余量。
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 10
+	connMaxLifetime = 55 * time.Minute
+	connMaxIdleTime = 5 * time.Minute
+)
 
 // DSN resolves the PostgreSQL connection string and reports where it came from.
 // Precedence: env ANTIFOX_PG_DSN > config file (config.json). There is no
@@ -73,6 +82,13 @@ func Open(dsn string) (*DB, error) {
 		sqlDB.Close()
 		return nil, fmt.Errorf("ping postgres (%s): %w", config.Redact(dsn), err)
 	}
+	// 连接池上限：限制并发占用的数据库连接，避免请求风暴耗尽连接导致查询失败。PG 默认
+	// max_connections=100，这里留足余量给其它客户端（psql/pg_dump/备份）；空闲连接回收
+	// 避免长驻，连接最长寿命防止网络层半死连接堆积。
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
 	// Serialize schema migration + seeding across concurrent openers (e.g. parallel
 	// test packages) using a session-level advisory lock. The lock is released
 	// automatically when the connection is returned to the pool or closed.

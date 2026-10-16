@@ -35,9 +35,9 @@ func (d *DB) RecordAudit(actor, category, action, result, ip, message string, de
 		VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)`, actor, category, action, result, ip, message, string(dj))
 }
 
-// ListAuditLogs 分页倒序列出审计日志（可按 category/actor 过滤）。
-func (d *DB) ListAuditLogs(category, actor string, limit, offset int) ([]AuditLog, int, error) {
-	if limit <= 0 || limit > 200 {
+// ListAuditLogs 分页倒序列出审计日志（可按 category/actor/action/result 过滤）。
+func (d *DB) ListAuditLogs(category, actor, action, result string, limit, offset int) ([]AuditLog, int, error) {
+	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
 	if offset < 0 {
@@ -52,6 +52,14 @@ func (d *DB) ListAuditLogs(category, actor string, limit, offset int) ([]AuditLo
 	if actor != "" {
 		args = append(args, actor)
 		where += " AND actor=$" + strconv.Itoa(len(args))
+	}
+	if action != "" {
+		args = append(args, action)
+		where += " AND action=$" + strconv.Itoa(len(args))
+	}
+	if result != "" {
+		args = append(args, result)
+		where += " AND result=$" + strconv.Itoa(len(args))
 	}
 	var total int
 	if err := d.QueryRow(`SELECT COUNT(*) FROM audit_logs `+where, args...).Scan(&total); err != nil {

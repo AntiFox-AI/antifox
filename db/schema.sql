@@ -576,9 +576,11 @@ CREATE TABLE IF NOT EXISTS rbac_users (
     password_hash TEXT NOT NULL,
     enabled       BOOLEAN NOT NULL DEFAULT true,
     is_builtin    BOOLEAN NOT NULL DEFAULT false,
+    token_version INT NOT NULL DEFAULT 0,  -- 改密/停用自增；JWT 携带旧版本即失效（强制重新登录）
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE rbac_users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;  -- 存量库补列（幂等）
 
 CREATE TABLE IF NOT EXISTS rbac_roles (
     id          TEXT PRIMARY KEY,

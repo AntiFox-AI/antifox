@@ -39,6 +39,8 @@ type Server struct {
 	dataDir  string // data root; report .docx files are written under dataDir/reports
 	jwtKey   []byte // HS256 signing key loaded from / generated into dataDir/jwt.key
 
+	loginLimiter *loginLimiter // 登录失败限流/锁定（按 IP + 账号）
+
 	// reportJobs tracks async .docx report generation per task (in-memory; reports
 	// are regenerable so a restart simply drops job state). Guarded by reportMu.
 	reportMu   sync.Mutex
@@ -133,6 +135,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 		chatCancel: map[string]context.CancelFunc{}, chatLock: map[string]*sync.Mutex{}, triggerQ: map[string][]triggeredRun{}, triggerRun: map[string]bool{},
 		profAgents: map[int64]*profBundle{}, profChatAgents: map[int64]*agent.ChatAgent{}, reportJobs: map[string]*reportJob{},
 		enrichJobs: map[int64]*enrichJob{}, provCache: map[int64]llm.Provider{}}
+	s.loginLimiter = newLoginLimiter()
 	s.llmHealth = newLLMHealthRegistry(m.pg) // process-wide LLM circuit breaker (restores cooling windows)
 	// 多用户 RBAC：首启迁移旧单用户密码为内置 admin + 播种角色/权限（幂等）。
 	s.bootstrapRBAC()

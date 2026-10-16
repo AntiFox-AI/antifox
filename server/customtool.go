@@ -61,6 +61,10 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "kind 需为 command / script / http / shell")
 		return
 	}
+	if hostExecToolKind(req.Kind) && !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可创建可在宿主机执行命令/脚本的工具（command/script/shell）")
+		return
+	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
 		writeErr(w, 400, "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
@@ -101,6 +105,12 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
 		writeErr(w, 400, "kind 需为 command / script / http / shell")
+		return
+	}
+	// 高危类型（宿主机执行）收归 admin：无论改前/改后是否为高危类型，都要求 admin，
+	// 防止 operator 把 http 工具改成 command，或改动一个已存在的 command 工具。
+	if (hostExecToolKind(req.Kind) || hostExecToolKind(existing.Kind)) && !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可管理可在宿主机执行命令/脚本的工具（command/script/shell）")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
@@ -151,6 +161,11 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 	var req testToolReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "无效的请求体")
+		return
+	}
+	// 试运行与真实调用走同一执行器，command/script 会在宿主机跑命令——收归 admin。
+	if hostExecToolKind(req.Kind) && !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可试运行 command/script 类型工具")
 		return
 	}
 	params := req.Params

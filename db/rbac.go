@@ -70,6 +70,7 @@ type RBACUser struct {
 	PasswordHash string    `json:"-"`
 	Enabled      bool      `json:"enabled"`
 	IsBuiltin    bool      `json:"is_builtin"`
+	TokenVersion int       `json:"-"` // 改密/停用自增；签 JWT 时写入，校验时比对，不匹配即失效
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -224,18 +225,20 @@ func (d *DB) BootstrapRBAC(adminHash string) error {
 
 func scanRBACUser(row interface{ Scan(...any) error }) (*RBACUser, error) {
 	var u RBACUser
-	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Enabled, &u.IsBuiltin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Enabled, &u.IsBuiltin, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
+
+const rbacUserCols = `id,username,display_name,password_hash,enabled,is_builtin,token_version,created_at,updated_at`
 
 func (d *DB) GetRBACUserByUsername(username string) (*RBACUser, error) {
 	username = strings.TrimSpace(strings.ToLower(username))
 	if username == "" {
 		return nil, sql.ErrNoRows
 	}
-	return scanRBACUser(d.QueryRow(`SELECT id,username,display_name,password_hash,enabled,is_builtin,created_at,updated_at FROM rbac_users WHERE username=$1`, username))
+	return scanRBACUser(d.QueryRow(`SELECT `+rbacUserCols+` FROM rbac_users WHERE username=$1`, username))
 }
 
 func (d *DB) GetRBACUserByID(id string) (*RBACUser, error) {
@@ -243,7 +246,7 @@ func (d *DB) GetRBACUserByID(id string) (*RBACUser, error) {
 	if id == "" {
 		return nil, sql.ErrNoRows
 	}
-	return scanRBACUser(d.QueryRow(`SELECT id,username,display_name,password_hash,enabled,is_builtin,created_at,updated_at FROM rbac_users WHERE id=$1`, id))
+	return scanRBACUser(d.QueryRow(`SELECT `+rbacUserCols+` FROM rbac_users WHERE id=$1`, id))
 }
 
 // ResolveRBACAccess 解析某用户的角色 + 权限 + 综合 scope。
@@ -285,7 +288,7 @@ func (d *DB) ResolveRBACAccess(userID string) (*RBACAccess, error) {
 }
 
 func (d *DB) ListRBACUsers() ([]RBACUser, error) {
-	rows, err := d.Query(`SELECT id,username,display_name,password_hash,enabled,is_builtin,created_at,updated_at FROM rbac_users ORDER BY username`)
+	rows, err := d.Query(`SELECT ` + rbacUserCols + ` FROM rbac_users ORDER BY username`)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +361,12 @@ func (d *DB) UpdateRBACUser(userID, displayName string, enabled *bool, roleIDs *
 	}
 	defer func() { _ = tx.Rollback() }()
 	if enabled != nil {
-		if _, err := tx.Exec(`UPDATE rbac_users SET display_name=$1,enabled=$2,updated_at=now() WHERE id=$3`, strings.TrimSpace(displayName), *enabled, userID); err != nil {
+		// 停用账号时 token_version+1，立即作废其已签发 token（不等它自然过期）。
+		bump := ""
+		if !*enabled {
+			bump = ",token_version=token_version+1"
+		}
+		if _, err := tx.Exec(`UPDATE rbac_users SET display_name=$1,enabled=$2`+bump+`,updated_at=now() WHERE id=$3`, strings.TrimSpace(displayName), *enabled, userID); err != nil {
 			return err
 		}
 	} else {
@@ -385,7 +393,8 @@ func (d *DB) UpdateRBACUserPassword(userID, passwordHash string) error {
 	if strings.TrimSpace(userID) == "" || passwordHash == "" {
 		return errors.New("参数缺失")
 	}
-	_, err := d.Exec(`UPDATE rbac_users SET password_hash=$1,updated_at=now() WHERE id=$2`, passwordHash, userID)
+	// token_version+1：改密即作废该用户此前签发的所有 JWT（旧 token 下次请求被拒）。
+	_, err := d.Exec(`UPDATE rbac_users SET password_hash=$1,token_version=token_version+1,updated_at=now() WHERE id=$2`, passwordHash, userID)
 	return err
 }
 
