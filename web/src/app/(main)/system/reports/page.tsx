@@ -82,6 +82,7 @@ export default function ReportsPage() {
   const [title, setTitle] = React.useState("");
   const [client, setClient] = React.useState("");
   const [locale, setLocale] = React.useState("zh-CN");
+  const [format, setFormat] = React.useState("docx"); // docx | md
   const [taskFindings, setTaskFindings] = React.useState<Finding[]>([]);
   const [selFindings, setSelFindings] = React.useState<Set<string>>(new Set());
   const [loadingFindings, setLoadingFindings] = React.useState(false);
@@ -268,6 +269,7 @@ export default function ReportsPage() {
         title: title || undefined,
         client: client || undefined,
         locale,
+        format,
         findingIds: isSubset ? allKeys.filter((k) => selFindings.has(k)) : undefined,
         templateId: selTemplate ? Number(selTemplate) : undefined,
       })
@@ -331,7 +333,7 @@ export default function ReportsPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label>{t("reports.company")}</Label>
               <Input
                 value={s.company_name}
@@ -339,14 +341,14 @@ export default function ReportsPage() {
                 placeholder={t("reports.companyPlaceholder")}
               />
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label>{t("reports.companyEn")}</Label>
               <Input value={s.company_name_en} onChange={(e) => setS({ ...s, company_name_en: e.target.value })} />
             </div>
           </div>
 
           {/* logo */}
-          <div className="space-y-1.5">
+          <div className="min-w-0 space-y-1.5">
             <Label>{t("reports.logo")}</Label>
             <div className="flex items-center gap-3">
               <div className="flex size-16 items-center justify-center overflow-hidden rounded-md border bg-muted/40">
@@ -540,7 +542,7 @@ export default function ReportsPage() {
           </DialogHeader>
           <div className="flex flex-col gap-3 py-2">
             {templates.length > 0 && (
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.useTemplate")}</Label>
                 <Select value={selTemplate || "none"} onValueChange={(v) => pickTemplate(v === "none" ? "" : v)}>
                   <SelectTrigger>
@@ -557,8 +559,8 @@ export default function ReportsPage() {
                 </Select>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.selectTask")}</Label>
                 <Select value={selTask} onValueChange={setSelTask}>
                   <SelectTrigger className="w-full min-w-0">
@@ -573,7 +575,7 @@ export default function ReportsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.language")}</Label>
                 <Select value={locale} onValueChange={setLocale}>
                   <SelectTrigger className="w-full min-w-0">
@@ -586,18 +588,30 @@ export default function ReportsPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="min-w-0 space-y-1.5">
+                <Label>{t("reports.format")}</Label>
+                <Select value={format} onValueChange={setFormat}>
+                  <SelectTrigger className="w-full min-w-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="docx">{t("reports.formatDocx")}</SelectItem>
+                    <SelectItem value="md">{t("reports.formatMd")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label>{t("reports.reportTitle")}</Label>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("reports.reportTitlePlaceholder")} />
             </div>
-            <div className="space-y-1.5">
+            <div className="min-w-0 space-y-1.5">
               <Label>{t("reports.clientName")}</Label>
               <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder={t("reports.clientPlaceholder")} />
             </div>
             {/* findings selector */}
             {selTask && (
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>{t("reports.selectFindings")}</Label>
                   {taskFindings.length > 0 && (
@@ -670,7 +684,7 @@ export default function ReportsPage() {
           </DialogHeader>
           <div className="flex flex-col gap-3 py-2">
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.templateName")}</Label>
                 <Input
                   value={tplForm.name}
@@ -678,7 +692,7 @@ export default function ReportsPage() {
                   placeholder={t("reports.templateNamePlaceholder")}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.language")}</Label>
                 <Select value={tplForm.locale} onValueChange={(v) => setTplForm({ ...tplForm, locale: v })}>
                   <SelectTrigger>
@@ -693,14 +707,14 @@ export default function ReportsPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.company")}</Label>
                 <Input
                   value={tplForm.company_name}
                   onChange={(e) => setTplForm({ ...tplForm, company_name: e.target.value })}
                 />
               </div>
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label>{t("reports.companyEn")}</Label>
                 <Input
                   value={tplForm.company_name_en}

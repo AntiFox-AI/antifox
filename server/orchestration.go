@@ -547,7 +547,7 @@ func (s *Server) reseedAgentPrompt(key, flag, note string) {
 // first-insert-only — so the newly-added structured `reproduction` param wouldn't reach
 // existing DBs' agents without this. Won't clobber user param-default edits after the flag.
 func (s *Server) refreshReportFindingSchema() {
-	const flag = "tool_schema_refresh_report_finding_repro_v1"
+	const flag = "tool_schema_refresh_report_finding_repro_v2" // v2: steps 增加 response 字段
 	if v, _, _ := s.m.pg.GetSetting(flag); v == "true" {
 		return
 	}

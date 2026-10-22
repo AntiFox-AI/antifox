@@ -193,6 +193,9 @@ export interface Finding {
   enr_target?: string;
   status?: FindingStatus;
   enriched?: boolean;
+  cvss_score?: number;
+  evidence_count?: number;
+  traffic_count?: number;
 }
 
 export type FindingStatus = "open" | "confirmed" | "fixed" | "false_positive" | "ignored";
@@ -216,9 +219,41 @@ export interface Enrichment {
   updated_at?: string;
 }
 
+// 结构化复现过程（agent 就地记录）。显式分步渲染 + 每步证据挂载的数据来源。
+export interface ReproStep {
+  request: string;
+  response: string;
+  expected: string;
+  proves: string;
+  // 系统按逐字请求解析出的对应真实流量 exchange id（供每步"跳转流量/截图"）；解析不出则空。
+  exchange_id?: string;
+}
+export interface Reproduction {
+  entry_point?: string;
+  prerequisites?: string[];
+  steps?: ReproStep[];
+  provenance?: string;
+}
+
 export interface FindingDetailResp {
   finding: Finding;
   enrichment: Enrichment | null;
+  reproduction?: Reproduction | null;
+}
+
+// 漏洞证据截图（发现页/报告/MD 共用）。step_index 对应复现步骤序号(0=概览)。
+export interface FindingEvidence {
+  id: number;
+  node_id: number;
+  filename: string;
+  caption: string;
+  step_index: number;
+  sort_order: number;
+  created_at: string;
+}
+export interface FindingEvidenceItem {
+  evidence: FindingEvidence;
+  url: string;
 }
 
 // Async 「AI 分析」 job state (POST enrich / GET enrich/status).
@@ -359,6 +394,8 @@ export interface TrafficExchange {
   status: number;
   content_type: string;
   resp_len: number;
+  // 正文搜索命中高亮片段（\x01/\x02 包裹命中处）；仅在按正文关键词筛选时有值。
+  match_snippet?: string;
 }
 
 export interface TrafficResp {

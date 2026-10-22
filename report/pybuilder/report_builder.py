@@ -3,7 +3,7 @@
 """
 AntiFox 渗透测试报告构建器（JSON 驱动，自包含）。
 
-成熟的 python-docx 排版引擎，JSON 驱动、自包含：
+基于 python-docx 的交付级排版能力，通用化为命令行工具：
     python3 report_builder.py <input.json> <output.docx>
 
 输入 JSON 由平台（Go 侧）组装：确定性骨架 + AI 生成的专业叙述。
@@ -678,15 +678,7 @@ def build_ch2(doc, data, meta):
     add_heading(doc, L(meta, "s23"), 2)
     add_caption(doc, L(meta, "tbl_checklist"))
     build_checklist(doc, data.get('checklist', []), meta)
-    # 2.4 tools
-    add_heading(doc, L(meta, "s24"), 2)
-    add_caption(doc, L(meta, "tbl_tools"))
-    trows = [[t.get('name', ''), t.get('desc', '')] for t in data.get('tools', [])]
-    build_table(doc, L(meta, "hdr_tools"), trows, [4.5, 11.0])
-    # 2.5 standards
-    add_heading(doc, L(meta, "s25"), 2)
-    for s in data.get('standards', []):
-        add_list_item(doc, s)
+    # 2.4 测试工具 / 2.5 参考规范 已按交付规范精简，不再输出。
     add_page_break(doc)
 
 

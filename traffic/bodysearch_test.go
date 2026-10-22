@@ -1,0 +1,155 @@
+package traffic
+
+import (
+	"database/sql"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	_ "modernc.org/sqlite"
+)
+
+// newTestTraffic spins up a Traffic backed by a temp sqlite with both the metadata
+// index and the trigram body index, no proxy.
+func newTestTraffic(t *testing.T) *Traffic {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dir, "idx.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{indexSchema, bodyFTSSchema} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("schema: %v", err)
+		}
+	}
+	tr := &Traffic{dir: dir, db: db, ftsOK: true}
+	t.Cleanup(func() { db.Close() })
+	return tr
+}
+
+func insertExchange(t *testing.T, tr *Traffic, id, method, url, reqBody, respBody string) {
+	t.Helper()
+	_, err := tr.db.Exec(`INSERT INTO exchanges(id,ts,host,method,url_template,url,status,content_type,req_len,resp_len,path)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		id, 1, "h", method, "/t", url, 200, "application/json", len(reqBody), len(respBody), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr.indexBody(id, reqBody, respBody)
+}
+
+func pageIDs(t *testing.T, tr *Traffic, f TrafficFilter) []string {
+	t.Helper()
+	rows, _, err := tr.Page("", "", "", f, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+func TestBodySearch(t *testing.T) {
+	tr := newTestTraffic(t)
+	// Two same-path enum requests differing only by the username in the BODY (the
+	// exact disambiguation case that metadata filters can't resolve), plus an unrelated one.
+	insertExchange(t, tr, "1-0001", "POST", "https://h/api/users/authenticate",
+		`{"username":"qqwwzz124","loginMethod":"E"}`, `{"body":"ANF"}`)
+	insertExchange(t, tr, "1-0002", "POST", "https://h/api/users/authenticate",
+		`{"username":"taiman","loginMethod":"E"}`, `{"body":"N"}`)
+	insertExchange(t, tr, "1-0003", "GET", "https://h/other",
+		`nothing here`, `账号不存在 account not found`)
+
+	// Body keyword in REQUEST pins the exact enum request.
+	if got := pageIDs(t, tr, TrafficFilter{Body: "qqwwzz124"}); len(got) != 1 || got[0] != "1-0001" {
+		t.Fatalf("req body search: want [1-0001], got %v", got)
+	}
+	// Body keyword in RESPONSE (we search both req+resp — beats response-only).
+	if got := pageIDs(t, tr, TrafficFilter{Body: "ANF"}); len(got) != 1 || got[0] != "1-0001" {
+		t.Fatalf("resp body search: want [1-0001], got %v", got)
+	}
+	// CJK substring search (trigram).
+	if got := pageIDs(t, tr, TrafficFilter{Body: "不存在"}); len(got) != 1 || got[0] != "1-0003" {
+		t.Fatalf("cjk body search: want [1-0003], got %v", got)
+	}
+	// < 3 chars: body filter is skipped (not applicable) → all rows returned.
+	if got := pageIDs(t, tr, TrafficFilter{Body: "ab"}); len(got) != 3 {
+		t.Fatalf("short keyword should not filter: got %v", got)
+	}
+	// Snippet highlights the hit with the \x01/\x02 markers around the keyword.
+	snips := tr.BodyMatchSnippets([]string{"1-0001"}, "qqwwzz124")
+	s := snips["1-0001"]
+	if !strings.Contains(s, "\x01") || !strings.Contains(s, "qqwwzz124") {
+		t.Fatalf("snippet should highlight keyword, got %q", s)
+	}
+}
+
+func TestResolveStepExchange(t *testing.T) {
+	tr := newTestTraffic(t)
+	// Same endpoint, three enum attempts differing only by the username in the body.
+	insertExchange(t, tr, "1-0001", "POST", "https://h/api/users/authenticate",
+		`{"username":"qqwwzz124","captchaAnswer":"95284","loginMethod":"E"}`, `{"body":"ANF"}`)
+	insertExchange(t, tr, "1-0002", "POST", "https://h/api/users/authenticate",
+		`{"username":"taiman","captchaAnswer":"11111","loginMethod":"E"}`, `{"body":"N"}`)
+	insertExchange(t, tr, "1-0003", "POST", "https://h/api/users/authenticate",
+		`{"username":"user","captchaAnswer":"22222","loginMethod":"E"}`, `{"body":"L5"}`)
+
+	// A verbatim step request (with query string + headers + body) resolves to the
+	// ONE exchange whose body carries that username — not the other same-path requests.
+	step := "POST /api/users/authenticate?language=zh_HK HTTP/1.1\n" +
+		"Host: h\nContent-Type: application/json\n\n" +
+		`{"username":"qqwwzz124","captchaAnswer":"95284","loginMethod":"E"}`
+	if id, ok := tr.ResolveStepExchange(step); !ok || id != "1-0001" {
+		t.Fatalf("resolve by body: want 1-0001/true, got %q/%v", id, ok)
+	}
+
+	// Same endpoint, no distinguishing body → ambiguous → abstain (no wrong link).
+	bare := "POST /api/users/authenticate HTTP/1.1\nHost: h\n\n"
+	if id, ok := tr.ResolveStepExchange(bare); ok {
+		t.Fatalf("ambiguous (no body) should abstain, got %q", id)
+	}
+
+	// Unique endpoint resolves even without a body.
+	insertExchange(t, tr, "1-0009", "GET", "https://h/admin/config.json", ``, `{"secret":"x"}`)
+	if id, ok := tr.ResolveStepExchange("GET /admin/config.json HTTP/1.1\nHost: h\n\n"); !ok || id != "1-0009" {
+		t.Fatalf("unique endpoint: want 1-0009/true, got %q/%v", id, ok)
+	}
+}
+
+func TestBackfillBodies(t *testing.T) {
+	tr := newTestTraffic(t)
+	// Simulate pre-existing captures on disk (not yet in the body index), including a
+	// gzip-encoded response so backfill decodes before indexing.
+	exDir := filepath.Join(tr.dir, "ex1")
+	if err := os.MkdirAll(exDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reqRaw := "POST /authenticate HTTP/1.1\nHost: h\nContent-Type: application/json\n\n" + `{"username":"zzz999"}`
+	respRaw := "HTTP 200\nContent-Encoding: gzip\nContent-Type: application/json\n\n" + string(gzipBytes(`{"body":"ANF"}`))
+	os.WriteFile(filepath.Join(exDir, "request.http"), []byte(reqRaw), 0o644)
+	os.WriteFile(filepath.Join(exDir, "response.http"), []byte(respRaw), 0o644)
+	if _, err := tr.db.Exec(`INSERT INTO exchanges(id,ts,host,method,url_template,url,status,content_type,req_len,resp_len,path)
+		VALUES('ex1',1,'h','POST','/t','https://h/authenticate',200,'application/json',10,10,'ex1')`); err != nil {
+		t.Fatal(err)
+	}
+
+	tr.backfillBodies()
+
+	// Request body indexed.
+	if got := pageIDs(t, tr, TrafficFilter{Body: "zzz999"}); len(got) != 1 || got[0] != "ex1" {
+		t.Fatalf("backfill req: want [ex1], got %v", got)
+	}
+	// gzip response DECODED then indexed — searchable by its plaintext content.
+	if got := pageIDs(t, tr, TrafficFilter{Body: "ANF"}); len(got) != 1 || got[0] != "ex1" {
+		t.Fatalf("backfill decoded resp: want [ex1], got %v", got)
+	}
+	// Re-running backfill is idempotent (id already indexed → skipped, no dup rows).
+	tr.backfillBodies()
+	if got := pageIDs(t, tr, TrafficFilter{Body: "zzz999"}); len(got) != 1 {
+		t.Fatalf("backfill not idempotent: got %v", got)
+	}
+}

@@ -621,6 +621,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/gc", s.gc)
 	mux.HandleFunc("GET /api/traffic", s.getTraffic)
 	mux.HandleFunc("GET /api/traffic/exchange", s.getTrafficExchange)
+	mux.HandleFunc("GET /api/traffic/meta", s.getTrafficMeta)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)
@@ -661,6 +662,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/findings/{id}/enrich", s.findingEnrich)
 	mux.HandleFunc("GET /api/findings/{id}/enrich/status", s.findingEnrichStatus)
 	mux.HandleFunc("PUT /api/findings/{id}", s.findingUpdate)
+	// 漏洞证据截图（发现页/报告/MD 共用）
+	mux.HandleFunc("POST /api/findings/{id}/evidence", s.uploadFindingEvidence)
+	mux.HandleFunc("GET /api/findings/{id}/evidence", s.listFindingEvidence)
+	mux.HandleFunc("GET /api/findings/{id}/evidence/{file}", s.serveFindingEvidence)
+	mux.HandleFunc("PUT /api/findings/{id}/evidence/{eid}", s.updateFindingEvidence)
+	mux.HandleFunc("DELETE /api/findings/{id}/evidence/{eid}", s.deleteFindingEvidence)
+	// 漏洞↔流量关联（手动；引擎自动记录复用 db.LinkFindingTraffic）
+	mux.HandleFunc("POST /api/findings/{id}/traffic", s.linkFindingTraffic)
+	mux.HandleFunc("GET /api/findings/{id}/traffic", s.listFindingTraffic)
+	mux.HandleFunc("DELETE /api/findings/{id}/traffic/{eid}", s.unlinkFindingTraffic)
 	mux.HandleFunc("POST /api/chat", s.chat)
 	mux.HandleFunc("POST /api/tasks/{id}/chat/stop", s.stopChat)
 
@@ -1326,15 +1337,20 @@ func (s *Server) mergeEnrichmentSummary(dtos []FindingDTO) []FindingDTO {
 		}
 	}
 	enr, _ := s.m.pg.GetFindingEnrichments(ids)
+	evCount := s.m.pg.CountFindingEvidence(ids)
+	trCount := s.m.pg.CountFindingTraffic(ids)
 	for i := range dtos {
 		n, _ := strconv.ParseInt(dtos[i].NodeID, 10, 64)
 		if e, ok := enr[n]; ok {
 			dtos[i].Enriched = true
 			dtos[i].EnrName, dtos[i].EnrTarget, dtos[i].Status = e.Name, e.Target, e.Status
+			dtos[i].CVSSScore = e.CVSSScore
 			if e.Severity != "" {
 				dtos[i].Severity = e.Severity // human severity override
 			}
 		}
+		dtos[i].EvidenceCount = evCount[n]
+		dtos[i].TrafficCount = trCount[n]
 	}
 	return dtos
 }
@@ -1638,6 +1654,27 @@ func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 
+// parseTrafficFilter 从查询串解析高级筛选（路径 / 状态码桶 2xx..5xx / 响应长度区间）。
+func parseTrafficFilter(q url.Values) traffic.TrafficFilter {
+	f := traffic.TrafficFilter{
+		Path:    strings.TrimSpace(q.Get("path")),
+		RespMin: atoiDefault(q.Get("resp_min"), 0),
+		RespMax: atoiDefault(q.Get("resp_max"), 0),
+		Body:    strings.TrimSpace(q.Get("body")),
+	}
+	switch strings.TrimSpace(q.Get("status")) {
+	case "2xx":
+		f.StatusMin, f.StatusMax = 200, 299
+	case "3xx":
+		f.StatusMin, f.StatusMax = 300, 399
+	case "4xx":
+		f.StatusMin, f.StatusMax = 400, 499
+	case "5xx":
+		f.StatusMin, f.StatusMax = 500, 599
+	}
+	return f
+}
+
 func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
@@ -1647,21 +1684,35 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	page := atoiDefault(q.Get("page"), 0)
 	size := atoiDefault(q.Get("size"), 100)
+	filter := parseTrafficFilter(q) // 高级筛选：路径 / 状态码桶 / 响应长度区间 / 正文关键词
 	var ex []traffic.ExchangeMeta
 	var matched, count int
 	buckets := map[int]int{} // 状态码分布(2/3/4/5=2xx…)，按全量聚合(非 50 行样本)
 	// task 过滤：流量按 host 存储、无任务字段，故用「该任务的资产主机集」间接圈定。
 	if taskID, _ := strconv.ParseInt(q.Get("task"), 10, 64); taskID > 0 {
 		hosts, _ := s.m.Assets().HostsForTask(taskID)
-		ex, matched, _ = tr.PageHosts(hosts, q.Get("method"), q.Get("q"), page, size)
+		ex, matched, _ = tr.PageHosts(hosts, q.Get("method"), q.Get("q"), filter, page, size)
 		count = matched // task-scoped total (for the stat card)
 		if len(hosts) > 0 {
 			buckets, _ = tr.StatusCounts(hosts)
 		}
 	} else {
-		ex, matched, _ = tr.Page(q.Get("host"), q.Get("method"), q.Get("q"), page, size)
+		ex, matched, _ = tr.Page(q.Get("host"), q.Get("method"), q.Get("q"), filter, page, size)
 		count, _ = tr.Count() // global total, for the stat card
 		buckets, _ = tr.StatusCounts(nil)
+	}
+	dtos := trafficDTOs(ex)
+	// Body keyword → attach a highlighted snippet per row showing where it matched
+	// (beats a bare match: you see the hit in context without opening each exchange).
+	if filter.Body != "" {
+		ids := make([]string, len(ex))
+		for i, e := range ex {
+			ids[i] = e.ID
+		}
+		snips := tr.BodyMatchSnippets(ids, filter.Body)
+		for i := range dtos {
+			dtos[i].MatchSnippet = snips[dtos[i].ID]
+		}
 	}
 	writeJSON(w, 200, map[string]any{
 		"enabled":       s.m.TrafficEnabled(), // reflect the capture toggle
@@ -1670,7 +1721,7 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		"total":         matched, // rows matching the current filter (for pagination)
 		"page":          page,
 		"size":          size,
-		"exchanges":     trafficDTOs(ex),
+		"exchanges":     dtos,
 		"status_buckets": buckets, // {2:N,3:N,4:N,5:N} — true distribution for the dashboard
 	})
 }
@@ -1694,6 +1745,28 @@ func (s *Server) getTrafficExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"req": req, "resp": resp})
+}
+
+// getTrafficMeta returns one exchange's metadata by id (method/status/url/host/…),
+// so a deep-link from a finding can open that exact packet's detail even when it
+// isn't on the current traffic page.
+func (s *Server) getTrafficMeta(w http.ResponseWriter, r *http.Request) {
+	tr := s.m.Traffic()
+	if tr == nil {
+		writeErr(w, 404, "traffic disabled")
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeErr(w, 400, "missing id")
+		return
+	}
+	metas, err := tr.MetaByIDs([]string{id})
+	if err != nil || len(metas) == 0 {
+		writeErr(w, 404, "not found")
+		return
+	}
+	writeJSON(w, 200, trafficDTOs(metas)[0])
 }
 
 // getSettings returns the runtime app settings the UI toggles. The Brave API key

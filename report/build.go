@@ -50,6 +50,7 @@ func redactLines(in []string, dataDir string) []string {
 
 // FindingInput is one confirmed finding, flattened from a graph node.
 type FindingInput struct {
+	NodeID     int64  // exploration 节点 id：用于加载该漏洞的证据截图(finding_evidence)
 	VulnClass  string
 	Severity   string // high|medium|low|critical|info
 	Summary    string
@@ -81,11 +82,14 @@ type Reproduction struct {
 }
 
 // ReproStep is one ordered reproduction step: the verbatim request, the expected
-// response/behavior, and what it proves.
+// response/behavior, and what it proves. ExchangeID (when resolved) links the step
+// to the exact recorded traffic packet it cites, for jump-to-traffic / screenshot.
 type ReproStep struct {
-	Request  string `json:"request"`
-	Expected string `json:"expected"`
-	Proves   string `json:"proves"`
+	Request    string `json:"request"`
+	Response   string `json:"response"`
+	Expected   string `json:"expected"`
+	Proves     string `json:"proves"`
+	ExchangeID string `json:"exchange_id,omitempty"`
 }
 
 // PersonInput is one 测试人员 row from report settings.
@@ -208,7 +212,8 @@ func BuildDoc(ctx context.Context, pg *db.DB, in *GenInput) *reportDoc {
 		secIdx++
 		sd := systemDetail{Name: sectionSystemHeader(loc, secIdx, systemDisplayName(loc, g.target), g.target)}
 		for vi, gf := range g.findings {
-			detail := assembleVuln(loc, gf.f, gf.enr, fmt.Sprintf("3.%d.%d", secIdx, vi+1), in.DataDir)
+			evByStep := loadEvidenceByStep(pg, in.DataDir, gf.f.NodeID, loc) // 证据截图按步骤分组
+			detail := assembleVuln(loc, gf.f, gf.enr, fmt.Sprintf("3.%d.%d", secIdx, vi+1), in.DataDir, evByStep)
 			sd.Vulns = append(sd.Vulns, detail)
 			remItems = append(remItems, remedyRow{
 				Idx: len(remItems) + 1, Object: vulnObject(loc, detail.Title, detail.Target),
@@ -227,7 +232,7 @@ func BuildDoc(ctx context.Context, pg *db.DB, in *GenInput) *reportDoc {
 	return doc
 }
 
-func assembleVuln(loc string, f FindingInput, enr Enrichment, secNo, dataDir string) vulnDetail {
+func assembleVuln(loc string, f FindingInput, enr Enrichment, secNo, dataDir string, evByStep map[int][]procBlock) vulnDetail {
 	// Vuln NAME: AI-polished title → vulnclass (already a name, e.g. "SSL POODLE
 	// (CVE-2014-3566)") → cleaned summary as last resort. Summary is the long
 	// description, never the name.
@@ -247,12 +252,17 @@ func assembleVuln(loc string, f FindingInput, enr Enrichment, secNo, dataDir str
 	// test_process priority: (1) 就地记录的结构化复现过程 (verbatim, authoritative — the
 	// agent recorded it while testing, so it can't be fabricated); (2) AI-reconstructed
 	// test_process; (3) raw PoC. Captured reproduction wins because it's the real thing.
-	if b := reproToBlocks(f.Reproduction, loc); len(b) > 0 {
-		d.TestProcess = b
-	} else if len(enr.TestProcess) > 0 {
-		d.TestProcess = enr.TestProcess
-	} else if strings.TrimSpace(f.PoC) != "" {
-		d.TestProcess = proofToBlocks(f.PoC)
+	if b := reproToBlocks(f.Reproduction, loc, evByStep); len(b) > 0 {
+		d.TestProcess = b // 结构化复现：证据已按步骤穿插其中
+	} else {
+		if len(enr.TestProcess) > 0 {
+			d.TestProcess = enr.TestProcess
+		} else if strings.TrimSpace(f.PoC) != "" {
+			d.TestProcess = proofToBlocks(f.PoC)
+		}
+		for _, k := range sortedIntKeys(evByStep) { // 非结构化复现：证据统一补在末尾
+			d.TestProcess = append(d.TestProcess, evByStep[k]...)
+		}
 	}
 	d.RiskAnalysis = enr.RiskAnalysis
 	d.Remediation = enr.Remediation
@@ -484,7 +494,10 @@ func cleanTitle(s string) string {
 // ordered text/code procBlocks for the report's test_process: 来源 → 入口点 →
 // 前置条件 → 每步(说明 text + 真实请求 code) → 无需 AI 重建. Returns nil when the
 // reproduction is absent or unparseable (caller falls back to AI/PoC).
-func reproToBlocks(raw json.RawMessage, loc string) []procBlock {
+// reproToBlocks 把结构化复现过程展成有序 text/code/image 块。evByStep 是该漏洞的证据截图
+// 按步骤号(1..N；0=概览)分组的 image 块——【穿插】渲染：每一步的说明+请求+响应之后，紧跟该步证据图；
+// 未归属到步骤的证据(概览/越界)在末尾补上。evByStep 为 nil 时退化为纯文字复现(富化生成时用)。
+func reproToBlocks(raw json.RawMessage, loc string, evByStep map[int][]procBlock) []procBlock {
 	if len(raw) < 3 { // ""/"{}" carry nothing
 		return nil
 	}
@@ -503,6 +516,7 @@ func reproToBlocks(raw json.RawMessage, loc string) []procBlock {
 			blocks = append(blocks, procBlock{Type: "code", Content: s})
 		}
 	}
+	used := map[int]bool{}
 	if strings.TrimSpace(r.Provenance) != "" {
 		addText(pick(loc, "【来源】", "【來源】", "Origin: ") + r.Provenance)
 	}
@@ -533,9 +547,70 @@ func reproToBlocks(raw json.RawMessage, loc string) []procBlock {
 			}
 			addText(sb.String())
 			addCode(st.Request)
+			if strings.TrimSpace(st.Response) != "" {
+				addText(pick(loc, "响应：", "回應：", "Response:"))
+				addCode(st.Response)
+			}
+			if ev := evByStep[i+1]; len(ev) > 0 { // 穿插：该步证据图紧跟其后
+				blocks = append(blocks, ev...)
+				used[i+1] = true
+			}
+		}
+	}
+	for _, k := range sortedIntKeys(evByStep) { // 概览(0) + 越界步骤的证据补在末尾
+		if !used[k] {
+			blocks = append(blocks, evByStep[k]...)
 		}
 	}
 	return blocks
+}
+
+// sortedIntKeys 返回 map 的 int 键升序切片（保证证据块渲染顺序确定）。
+func sortedIntKeys(m map[int][]procBlock) []int {
+	if len(m) == 0 {
+		return nil
+	}
+	ks := make([]int, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	sort.Ints(ks)
+	return ks
+}
+
+// loadEvidenceByStep 加载某漏洞的证据截图并按步骤号分组成 image 块；图注为空时自动补默认标注
+// （步骤N 证据 / 证据截图，多张追加序号），保证每张图在报告里都有说明文字。
+func loadEvidenceByStep(pg *db.DB, dataDir string, nodeID int64, loc string) map[int][]procBlock {
+	if pg == nil || nodeID <= 0 {
+		return nil
+	}
+	list, err := pg.ListFindingEvidence(nodeID)
+	if err != nil || len(list) == 0 {
+		return nil
+	}
+	ns := fmt.Sprintf("%d", nodeID)
+	m := map[int][]procBlock{}
+	seq := map[int]int{}
+	for _, e := range list {
+		seq[e.StepIndex]++
+		cap := strings.TrimSpace(e.Caption)
+		if cap == "" {
+			if e.StepIndex > 0 {
+				cap = fmt.Sprintf("%s %d %s", pick(loc, "步骤", "步驟", "Step"), e.StepIndex, pick(loc, "证据", "證據", "evidence"))
+			} else {
+				cap = pick(loc, "证据截图", "證據截圖", "Evidence")
+			}
+			if seq[e.StepIndex] > 1 {
+				cap = fmt.Sprintf("%s %d", cap, seq[e.StepIndex])
+			}
+		}
+		m[e.StepIndex] = append(m[e.StepIndex], procBlock{
+			Type:    "image",
+			Path:    filepath.Join(dataDir, "report_assets", "evidence", ns, e.Filename),
+			Caption: cap,
+		})
+	}
+	return m
 }
 
 // nonEmpty drops blank strings from a slice.

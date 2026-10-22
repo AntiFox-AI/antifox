@@ -138,9 +138,9 @@ type Enrichment struct {
 	CVSSMetrics  map[string]string `json:"cvss_metrics"`
 }
 
-const sysVuln = "你是%s的资深渗透测试报告撰写专家。把漏洞原始记录改写为专业交付报告的正文。严格只输出 JSON，不要 markdown 代码块。测试过程中的 HTTP 请求/命令/响应等原文必须真实保留，不得编造。"
+const sysVuln = "你是%s的资深渗透测试报告撰写专家。把漏洞原始记录改写为【交付级】报告正文——像资深顾问亲笔写给客户，精炼、专业、就事论事。严格只输出 JSON，不要 markdown 代码块，不要客套话、免责声明或套话。HTTP 请求/命令/响应等原文必须真实保留，不得编造。"
 
-const userVuln = `将以下漏洞改写为报告正文（专业交付口吻）。
+const userVuln = `把下面这条漏洞改写成报告正文。核心要求：【精炼、具体、克制】——宁缺毋滥，不凑条数、不注水、不说正确的废话；每一句都要是针对本目标本漏洞的真信息。
 
 漏洞类型/原始名称：%s
 严重程度：%s
@@ -149,17 +149,18 @@ const userVuln = `将以下漏洞改写为报告正文（专业交付口吻）�
 原始复现过程/证据：
 %s
 
-要求：
-- title：简洁专业的中文漏洞名称（10-30 字，如"SSO 会话令牌可伪造漏洞"、"SSLv3 POODLE 信息泄露漏洞"）；若原始名称已是规范名称（含 CVE 编号等）可保留或适度润色，不要照抄整段摘要。
-- target：受影响的主机或 URL，从摘要/证据中提取（如 "dc.example.org"、"https://x/api/login"）；无法确定则留空字符串。
-- description：字符串数组 1-2 段，专业描述漏洞成因与危害，可引用 OWASP 分类，技术准确、客户可读，不要 markdown。
-- module：所属功能模块（简短，如"角色权限管理 / 未授权接口"）。
-- test_process：数组，按复现顺序排列；说明性文字用 {"type":"text","content":"..."}；HTTP 请求、curl、SQLMap 命令、响应报文、JSON 等用 {"type":"code","content":"..."}。保留原始命令/请求/响应的真实内容，不得编造；可将原始证据整理为清晰的步骤。
-- risk_analysis：字符串数组 3-6 条，逐条说明该漏洞可造成的具体危害。
-- remediation：字符串数组 3-7 条，具体、可操作的修复建议。
-- 请按 CVSS 3.1 计算 cvss_score(数字) 与 cvss_vector(如 "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")；并给出 cvss_metrics（八项英文取值，如 {"AV":"Network","AC":"Low","PR":"None","UI":"None","S":"Unchanged","C":"High","I":"High","A":"High"}）。
+字段要求：
+- title：规范、专业的漏洞名称（10-26 字）。原始名已规范（含 CVE 等）则保留或微调，不要照抄摘要。
+- target：受影响主机或 URL，从摘要/证据中提取；无法确定留空字符串。
+- description：1 段 2-3 句，只说清这是什么漏洞、出在哪个点、本质成因。不堆 OWASP 分类、不复述修复、不空泛铺垫。
+- module：所属功能模块（简短，如"外部账户登录 / 未授权接口"）。
+- risk_analysis：2-4 条，每条一句，必须是针对本目标本漏洞的具体后果（谁、能做什么、拿到什么数据或权限），不要套话。
+- remediation：2-4 条，每条一句，具体可落地（改哪个点、怎么改、校验什么），不要空话。
+- CVSS 3.1：cvss_score(数字)、cvss_vector(如 "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")、cvss_metrics（八项英文取值）。
 
-只输出 JSON：{"title":"...","target":"...","description":[...],"module":"...","test_process":[{"type":"text","content":"..."},{"type":"code","content":"..."}],"risk_analysis":[...],"remediation":[...],"cvss_score":0,"cvss_vector":"...","cvss_metrics":{...}}`
+不要输出 test_process——复现过程由平台用真实证据直接生成，返回 "test_process":[] 即可。
+
+只输出 JSON：{"title":"...","target":"...","description":["..."],"module":"...","test_process":[],"risk_analysis":["..."],"remediation":["..."],"cvss_score":0,"cvss_vector":"...","cvss_metrics":{...}}`
 
 func aiVulnNarrative(ctx context.Context, pg *db.DB, locale string, f FindingInput, companyName string, sk *skillContent) Enrichment {
 	var out Enrichment
@@ -184,8 +185,8 @@ func aiVulnNarrative(ctx context.Context, pg *db.DB, locale string, f FindingInp
 			"description/risk_analysis 依据转录中的真实现象来写，不得编造或臆测转录中没有的内容。\n\n" + tr
 	}
 	// PROSE-ONLY, ALWAYS. We never ask the model to reconstruct a verbatim test_process:
-	// that large generation is slow and unreliable on many models (timeouts / empty
-	// responses) AND risks fabricating a PoC (the user's key pain). Instead test_process is
+	// that large generation is slow and unreliable (many models time out / return nothing
+	// on it) AND risks fabricating a PoC (the user's key pain). Instead test_process is
 	// filled DETERMINISTICALLY below from REAL evidence — the agent's in-situ 复现过程 if
 	// present, else the raw PoC. The model only writes prose (title/desc/module/risk/
 	// remediation/CVSS), which is small, fast, and reliable on any model.
@@ -206,7 +207,7 @@ func aiVulnNarrative(ctx context.Context, pg *db.DB, locale string, f FindingInp
 	// in-situ 复现过程 wins; else the raw PoC (deterministic). This makes every consumer
 	// (persisted enrichment → findings page UI, and the report) show real, non-fabricated
 	// steps — and keeps the generation prose-only (small, reliable).
-	if b := reproToBlocks(f.Reproduction, loc); len(b) > 0 {
+	if b := reproToBlocks(f.Reproduction, loc, nil); len(b) > 0 {
 		out.TestProcess = b
 	} else if len(out.TestProcess) == 0 && strings.TrimSpace(f.PoC) != "" {
 		out.TestProcess = proofToBlocks(f.PoC)

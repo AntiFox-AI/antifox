@@ -4,7 +4,18 @@ import * as React from "react";
 
 import Link from "next/link";
 
-import { ArrowUpRightIcon, ChevronRightIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowUpRightIcon,
+  BugIcon,
+  ChevronRightIcon,
+  ImageIcon,
+  InfoIcon,
+  LayersIcon,
+  Link2Icon,
+  ShieldAlertIcon,
+  SparklesIcon,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { FindingDetail } from "@/components/finding-detail";
@@ -19,6 +30,28 @@ import { taskLabel, taskMap } from "@/lib/task-label";
 import { cn } from "@/lib/utils";
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+
+// 实心强色严重度徽标——全部填充、色相区分(红→橙→琥珀→石板)，整齐可扫读、比浅底更扎实。
+const SEV_PILL: Record<string, string> = {
+  critical: "border-transparent bg-red-600 text-white",
+  high: "border-transparent bg-orange-500 text-white",
+  medium: "border-transparent bg-amber-500 text-white",
+  low: "border-transparent bg-slate-400 text-white",
+};
+function SeverityPill({ sev }: { sev: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-semibold whitespace-nowrap",
+        SEV_PILL[sev] ?? "border-border bg-muted text-muted-foreground",
+      )}
+    >
+      <span className="size-1.5 rounded-full bg-white/90" />
+      {t(`status.severity.${sev}`)}
+    </span>
+  );
+}
 
 function fmtTime(ts: string) {
   return new Date(ts).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -43,6 +76,13 @@ function extractTarget(f: Finding): string {
   const ip = text.match(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/);
   if (ip) return ip[0];
   return "";
+}
+
+// vulnCategory collapses a verbose vulnclass to its category: everything before the
+// first parenthetical or " — / - " description. "Broken Access Control / IDOR (跨用户写)"
+// and "… IDOR — Unauthenticated enum" both become "Broken Access Control / IDOR".
+function vulnCategory(vc: string): string {
+  return (vc || "").split(/[(（]|\s[—–-]\s/)[0].trim();
 }
 
 export default function FindingsPage() {
@@ -72,7 +112,18 @@ export default function FindingsPage() {
     api.tasks().then((r) => setTasks(r.tasks)).catch(() => {});
   }, []);
 
-  const vulnclasses = React.useMemo(() => Array.from(new Set(findings.map((f) => f.vulnclass))).sort(), [findings]);
+  // Agents put long, slightly-varying descriptions INTO vulnclass ("Cat / Sub (一长串)"),
+  // so a raw distinct-list is hundreds of near-duplicate entries. Collapse each to its
+  // category (strip the parenthetical / dash description) and count per category, so the
+  // type filter is short and usable.
+  const vulnCats = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const f of findings) {
+      const c = vulnCategory(f.vulnclass);
+      if (c) m.set(c, (m.get(c) ?? 0) + 1);
+    }
+    return Array.from(m, ([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [findings]);
 
   // distinct tasks present in the loaded findings, for the task filter dropdown;
   // labels prefer the task's 名称/目标 (from the tasks list) then #id·描述.
@@ -93,7 +144,7 @@ export default function FindingsPage() {
   const rows = React.useMemo(() => {
     let list = findings.slice();
     if (severity !== "all") list = list.filter((f) => f.severity === severity);
-    if (vulnclass !== "all") list = list.filter((f) => f.vulnclass === vulnclass);
+    if (vulnclass !== "all") list = list.filter((f) => vulnCategory(f.vulnclass) === vulnclass);
     if (task !== "all") list = list.filter((f) => f.task_id === task);
     list.sort((a, b) => {
       if (sort === "severity") {
@@ -111,13 +162,19 @@ export default function FindingsPage() {
 
   const paginated = React.useMemo(() => rows.slice((page - 1) * pageSize, page * pageSize), [rows, page, pageSize]);
 
-  const statCards: { label: string; value: number; tone?: string }[] = [
-    { label: t("findings.stat.total"), value: counts.total },
-    { label: t("status.severity.critical"), value: counts.critical, tone: "text-red-600" },
-    { label: t("status.severity.high"), value: counts.high, tone: "text-red-500" },
-    { label: t("status.severity.medium"), value: counts.medium, tone: "text-amber-500" },
-    { label: t("status.severity.low"), value: counts.low, tone: "text-slate-500" },
-    { label: t("findings.stat.tasks"), value: counts.tasks },
+  const statCards: {
+    label: string;
+    value: number;
+    tone?: string;
+    icon: React.ComponentType<{ className?: string }>;
+    accent?: string;
+  }[] = [
+    { label: t("findings.stat.total"), value: counts.total, icon: BugIcon },
+    { label: t("status.severity.critical"), value: counts.critical, tone: "text-red-600 dark:text-red-500", icon: ShieldAlertIcon, accent: "border-red-500/25 bg-red-500/[0.04]" },
+    { label: t("status.severity.high"), value: counts.high, tone: "text-red-500", icon: AlertTriangleIcon, accent: "border-red-500/15 bg-red-500/[0.03]" },
+    { label: t("status.severity.medium"), value: counts.medium, tone: "text-amber-500", icon: AlertTriangleIcon, accent: "border-amber-500/20 bg-amber-500/[0.03]" },
+    { label: t("status.severity.low"), value: counts.low, tone: "text-slate-500", icon: InfoIcon },
+    { label: t("findings.stat.tasks"), value: counts.tasks, icon: LayersIcon },
   ];
 
   return (
@@ -129,9 +186,12 @@ export default function FindingsPage() {
       <div className="flex flex-1 flex-col gap-4 md:gap-6">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
           {statCards.map((s) => (
-            <Card key={s.label} className="gap-1 py-4">
+            <Card key={s.label} className={cn("gap-1 py-4 transition-colors", s.accent)}>
               <CardHeader className="px-4">
-                <CardDescription>{s.label}</CardDescription>
+                <div className="flex items-center justify-between gap-2">
+                  <CardDescription>{s.label}</CardDescription>
+                  <s.icon className={cn("size-4 shrink-0", s.tone ?? "text-muted-foreground/50")} />
+                </div>
                 <CardTitle className={cn("text-2xl tabular-nums", s.tone)}>{s.value}</CardTitle>
               </CardHeader>
             </Card>
@@ -158,11 +218,12 @@ export default function FindingsPage() {
             <SelectTrigger size="sm" className="w-40">
               <SelectValue placeholder={t("findings.vulnclass")} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-80 max-w-[min(90vw,32rem)]">
               <SelectItem value="all">{t("findings.allTypes")}</SelectItem>
-              {vulnclasses.map((vc) => (
-                <SelectItem key={vc} value={vc}>
-                  {vc}
+              {vulnCats.map((vc) => (
+                <SelectItem key={vc.name} value={vc.name}>
+                  <span className="truncate">{vc.name}</span>
+                  <span className="ml-1 text-muted-foreground tabular-nums">· {vc.count}</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -201,13 +262,14 @@ export default function FindingsPage() {
           <CardContent className="px-0">
             <Table className="table-fixed">
               <TableHeader>
-                <TableRow>
+                <TableRow className="border-b bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-8" />
-                  <TableHead className="w-20">{t("findings.colSeverity")}</TableHead>
+                  <TableHead className="w-28">{t("findings.colSeverity")}</TableHead>
                   <TableHead>{t("findings.colName")}</TableHead>
-                  <TableHead className="w-44">{t("findings.colTarget")}</TableHead>
-                  <TableHead className="w-36 max-w-[9rem]">{t("findings.colTask")}</TableHead>
-                  <TableHead className="w-28">{t("findings.colTime")}</TableHead>
+                  <TableHead className="w-40">{t("findings.colTarget")}</TableHead>
+                  <TableHead className="w-24">{t("findings.statusLabel")}</TableHead>
+                  <TableHead className="w-32 max-w-[8rem]">{t("findings.colTask")}</TableHead>
+                  <TableHead className="w-24">{t("findings.colTime")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -217,29 +279,57 @@ export default function FindingsPage() {
                   const name = f.enr_name || f.vulnclass || t("findings.unnamed");
                   return (
                     <React.Fragment key={f.id}>
-                      <TableRow className="cursor-pointer" onClick={() => setExpanded(open ? null : f.id)}>
-                        <TableCell>
+                      <TableRow
+                        className={cn("cursor-pointer align-top transition-colors", open && "bg-muted/40")}
+                        onClick={() => setExpanded(open ? null : f.id)}
+                      >
+                        <TableCell className="py-3">
                           <ChevronRightIcon
                             className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")}
                           />
                         </TableCell>
-                        <TableCell>
-                          <StatusBadge domain="severity" value={f.severity} dot />
+                        <TableCell className="py-3">
+                          <div className="flex flex-col items-start gap-1">
+                            <SeverityPill sev={f.severity} />
+                            {f.cvss_score ? (
+                              <span className="pl-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+                                CVSS {f.cvss_score.toFixed(1)}
+                              </span>
+                            ) : null}
+                          </div>
                         </TableCell>
-                        <TableCell className="max-w-lg">
-                          <div className="flex min-w-0 flex-col gap-0.5">
-                            <span className="flex items-center gap-2">
-                              <span className="truncate font-medium" title={f.vulnclass}>
+                        <TableCell className="max-w-lg py-3">
+                          <div className="flex min-w-0 flex-col gap-1">
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate text-sm font-semibold" title={f.vulnclass}>
                                 {name}
                               </span>
-                              {f.status && <StatusBadge domain="findingStatus" value={f.status} />}
+                              {f.enriched && (
+                                <SparklesIcon className="size-3 shrink-0 text-primary/70" aria-label={t("findings.enriched")} />
+                              )}
                             </span>
                             <span className="text-muted-foreground line-clamp-1 text-xs" title={f.summary}>
                               {f.summary}
                             </span>
+                            {(f.evidence_count || f.traffic_count) ? (
+                              <div className="flex flex-wrap items-center gap-1">
+                                {f.evidence_count ? (
+                                  <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                    <ImageIcon className="size-3" />
+                                    {t("findings.evidenceCount", { count: f.evidence_count })}
+                                  </span>
+                                ) : null}
+                                {f.traffic_count ? (
+                                  <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                    <Link2Icon className="size-3" />
+                                    {t("findings.trafficCount", { count: f.traffic_count })}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         </TableCell>
-                        <TableCell className="w-44">
+                        <TableCell className="w-40 py-3">
                           {target ? (
                             <code
                               className="block max-w-full truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
@@ -251,12 +341,19 @@ export default function FindingsPage() {
                             <span className="text-muted-foreground text-xs">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="w-36 max-w-[9rem]">
+                        <TableCell className="py-3">
+                          {f.status ? (
+                            <StatusBadge domain="findingStatus" value={f.status} dot />
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="w-32 max-w-[8rem] py-3">
                           {f.task_id ? (
                             <Link
                               href={`/function/tasks/detail?id=${f.task_id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex max-w-full items-center gap-1 text-primary hover:underline"
+                              className="inline-flex max-w-full items-center gap-1 text-xs text-primary hover:underline"
                               title={f.task_description}
                             >
                               <span className="truncate">{f.task_description}</span>
@@ -266,11 +363,11 @@ export default function FindingsPage() {
                             <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground tabular-nums">{fmtTime(f.ts)}</TableCell>
+                        <TableCell className="py-3 text-xs text-muted-foreground tabular-nums">{fmtTime(f.ts)}</TableCell>
                       </TableRow>
                       {open && (
                         <TableRow className="hover:bg-transparent">
-                          <TableCell colSpan={6} className="bg-muted/30 whitespace-normal">
+                          <TableCell colSpan={7} className="bg-muted/30 whitespace-normal">
                             <FindingDetail finding={f} onChanged={reload} />
                           </TableCell>
                         </TableRow>
@@ -280,7 +377,7 @@ export default function FindingsPage() {
                 })}
                 {rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
+                    <TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
                       {t("findings.empty")}
                     </TableCell>
                   </TableRow>

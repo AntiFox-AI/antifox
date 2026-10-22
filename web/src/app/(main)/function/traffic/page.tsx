@@ -8,14 +8,18 @@ import {
   ChevronRightIcon,
   XIcon,
   Loader2Icon,
-  CopyIcon,
-  CheckIcon,
+  CameraIcon,
   Maximize2Icon,
   Minimize2Icon,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { HttpPacket, requestWithHost } from "@/components/http-packet";
+import { PacketShotModal } from "@/components/packet-shot-modal";
+import { LinkTrafficDialog } from "@/components/link-traffic-dialog";
+
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,6 +69,27 @@ function statusTone(status: number) {
   return "text-muted-foreground";
 }
 
+// SnippetText renders a body-search match excerpt, bolding the hit that the backend
+// wrapped in \x01…\x02 markers (snippet() output).
+function SnippetText({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  const re = /\x01([^\x02]*)\x02/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <mark key={i++} className="rounded-sm bg-amber-300/60 px-0.5 text-foreground dark:bg-amber-500/40">
+        {m[1]}
+      </mark>,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <span className="font-mono text-[11px] leading-relaxed break-all text-muted-foreground">{parts}</span>;
+}
+
 // Fixed method set (server filters exact-match); avoids deriving options from a
 // single page, which would only ever list the methods on that page.
 const METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
@@ -81,13 +106,24 @@ export default function TrafficPage() {
   const [method, setMethod] = React.useState("all");
   const [taskFilter, setTaskFilter] = React.useState("all");
   const [tasks, setTasks] = React.useState<Task[]>([]);
+  // 高级筛选：路径 / 状态码桶 / 响应长度区间（走后端索引列）
+  const [path, setPath] = React.useState("");
+  const [pathQ, setPathQ] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState("all");
+  const [respMin, setRespMin] = React.useState("");
+  const [respMax, setRespMax] = React.useState("");
+  // 正文搜索：请求+响应解码后全文，FTS trigram（≥3 字），命中带高亮片段
+  const [body, setBody] = React.useState("");
+  const [bodyQ, setBodyQ] = React.useState("");
 
   const [traffic, setTraffic] = React.useState<TrafficResp | null>(null);
   const [selected, setSelected] = React.useState<TrafficExchange | null>(null);
   const [detail, setDetail] = React.useState<TrafficDetail | null>(null);
   const [detailLoading, setDetailLoading] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false); // 放大详情面板(便于截完整包)
-  const [copied, setCopied] = React.useState<string | null>(null); // 复制反馈("req"/"resp")
+  const [shotMode, setShotMode] = React.useState(false); // 截图模式：请求+响应一屏，替代 Burp 截图
+  const [selectedFlows, setSelectedFlows] = React.useState<Set<string>>(new Set()); // 勾选待关联的流量
+  const [linkOpen, setLinkOpen] = React.useState(false); // 关联到漏洞弹窗
 
   // Task list drives the per-task filter dropdown (traffic is host-keyed with no
   // task column, so the backend scopes a task by its discovered asset hosts).
@@ -104,11 +140,33 @@ export default function TrafficPage() {
     const t = setTimeout(() => setQueryQ(query.trim()), 300);
     return () => clearTimeout(t);
   }, [query]);
+  React.useEffect(() => {
+    const t = setTimeout(() => setPathQ(path.trim()), 300);
+    return () => clearTimeout(t);
+  }, [path]);
+  React.useEffect(() => {
+    const t = setTimeout(() => setBodyQ(body.trim()), 300);
+    return () => clearTimeout(t);
+  }, [body]);
+
+  // Deep-link: /function/traffic?exchange=<id> opens that exact packet's detail
+  // (jumped from a finding's evidence), even if it's not on the current page. Reads
+  // window.location directly so it works under static export without a Suspense boundary.
+  React.useEffect(() => {
+    const exId = new URLSearchParams(window.location.search).get("exchange");
+    if (!exId) return;
+    api
+      .trafficMeta(exId)
+      .then((m) => setSelected(m))
+      .catch(() => {});
+    // Drop the param so a refresh doesn't re-trigger the jump.
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   // Any filter/size change resets to the first page.
   React.useEffect(() => {
     setPage(0);
-  }, [hostQ, queryQ, method, size, taskFilter]);
+  }, [hostQ, queryQ, method, size, taskFilter, pathQ, statusFilter, respMin, respMax, bodyQ]);
 
   // Load the current page. Auto-refresh only on page 0 (newest) so paging back
   // through history isn't yanked out from under the user.
@@ -116,7 +174,13 @@ export default function TrafficPage() {
     let alive = true;
     const load = () =>
       api
-        .traffic(page, size, hostQ, method, queryQ, taskFilter === "all" ? 0 : Number(taskFilter))
+        .traffic(page, size, hostQ, method, queryQ, taskFilter === "all" ? 0 : Number(taskFilter), {
+          path: pathQ,
+          status: statusFilter,
+          respMin: Number(respMin) || 0,
+          respMax: Number(respMax) || 0,
+          body: bodyQ,
+        })
         .then((r) => {
           if (alive) setTraffic(r);
         })
@@ -127,7 +191,7 @@ export default function TrafficPage() {
       alive = false;
       if (t) clearInterval(t);
     };
-  }, [page, size, hostQ, method, queryQ, taskFilter]);
+  }, [page, size, hostQ, method, queryQ, taskFilter, pathQ, statusFilter, respMin, respMax, bodyQ]);
 
   // Lazy-load the raw request/response for the selected exchange.
   React.useEffect(() => {
@@ -278,8 +342,76 @@ export default function TrafficPage() {
         </div>
       </div>
 
+      {/* 高级筛选：路径 / 状态码桶 / 响应长度区间（305k+ 条里精确定位到那一个包）*/}
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5">
+        <span className="pl-1 text-xs font-medium text-muted-foreground">{t("traffic.advFilter")}</span>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder={t("traffic.advBody")}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            className="h-8 w-64 pl-7"
+            title={t("traffic.advBodyHint")}
+          />
+        </div>
+        <Input
+          placeholder={t("traffic.advPath")}
+          value={path}
+          onChange={(e) => setPath(e.target.value)}
+          className="h-8 w-56"
+        />
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger size="sm" className="w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("traffic.allStatus")}</SelectItem>
+            <SelectItem value="2xx">2xx</SelectItem>
+            <SelectItem value="3xx">3xx</SelectItem>
+            <SelectItem value="4xx">4xx</SelectItem>
+            <SelectItem value="5xx">5xx</SelectItem>
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>{t("traffic.respLen")}</span>
+          <Input type="number" min={0} placeholder={t("traffic.minB")} value={respMin} onChange={(e) => setRespMin(e.target.value)} className="h-8 w-24" />
+          <span>–</span>
+          <Input type="number" min={0} placeholder={t("traffic.maxB")} value={respMax} onChange={(e) => setRespMax(e.target.value)} className="h-8 w-24" />
+        </div>
+        {(body || path || statusFilter !== "all" || respMin || respMax) && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8"
+            onClick={() => {
+              setBody("");
+              setPath("");
+              setStatusFilter("all");
+              setRespMin("");
+              setRespMax("");
+            }}
+          >
+            {t("traffic.clearFilter")}
+          </Button>
+        )}
+      </div>
+
       {taskFilter !== "all" && (
         <p className="text-xs text-muted-foreground">{t("traffic.taskHint")}</p>
+      )}
+
+      {/* 勾选流量 → 关联到漏洞（作证据来源） */}
+      {selectedFlows.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">{t("traffic.selectedN", { count: selectedFlows.size })}</span>
+          <Button size="sm" className="h-8" onClick={() => setLinkOpen(true)}>
+            {t("traffic.linkToFinding")}
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8" onClick={() => setSelectedFlows(new Set())}>
+            {t("traffic.clearSelection")}
+          </Button>
+        </div>
       )}
 
       {/* History table + detail (Burp-style split) */}
@@ -289,6 +421,22 @@ export default function TrafficPage() {
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
+                  <TableHead className="w-8">
+                    <Checkbox
+                      aria-label="select-page"
+                      checked={exchanges.length > 0 && exchanges.every((e) => selectedFlows.has(e.id))}
+                      onCheckedChange={(c) =>
+                        setSelectedFlows((prev) => {
+                          const next = new Set(prev);
+                          for (const e of exchanges) {
+                            if (c === true) next.add(e.id);
+                            else next.delete(e.id);
+                          }
+                          return next;
+                        })
+                      }
+                    />
+                  </TableHead>
                   <TableHead className="w-36">{t("traffic.colTime")}</TableHead>
                   <TableHead className="w-44">host</TableHead>
                   <TableHead className="w-20">{t("traffic.method")}</TableHead>
@@ -300,14 +448,29 @@ export default function TrafficPage() {
               </TableHeader>
               <TableBody>
                 {exchanges.map((e) => (
+                  <React.Fragment key={e.id}>
                   <TableRow
-                    key={e.id}
                     className={cn(
                       "cursor-pointer",
                       selected?.id === e.id && "bg-accent hover:bg-accent",
+                      e.match_snippet && "border-b-0",
                     )}
                     onClick={() => setSelected(e)}
                   >
+                    <TableCell onClick={(ev) => ev.stopPropagation()}>
+                      <Checkbox
+                        aria-label={`select ${e.id}`}
+                        checked={selectedFlows.has(e.id)}
+                        onCheckedChange={() =>
+                          setSelectedFlows((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(e.id)) next.delete(e.id);
+                            else next.add(e.id);
+                            return next;
+                          })
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
                       {fmtTime(e.ts)}
                     </TableCell>
@@ -339,11 +502,23 @@ export default function TrafficPage() {
                       {fmtBytes(e.resp_len)}
                     </TableCell>
                   </TableRow>
+                  {e.match_snippet && (
+                    <TableRow
+                      className={cn("cursor-pointer", selected?.id === e.id && "bg-accent hover:bg-accent")}
+                      onClick={() => setSelected(e)}
+                    >
+                      <TableCell />
+                      <TableCell colSpan={7} className="pt-0 pb-2">
+                        <SnippetText text={e.match_snippet} />
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </React.Fragment>
                 ))}
                 {exchanges.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={8}
                       className="py-12 text-center text-sm text-muted-foreground"
                     >
                       {traffic === null ? t("common.loading") : t("traffic.empty")}
@@ -364,18 +539,32 @@ export default function TrafficPage() {
             )}
           >
             <div className="flex items-center gap-2 border-b px-3 py-2">
-              <Badge variant="outline" className="font-mono text-xs">
+              <Badge variant="outline" className="shrink-0 font-mono text-xs">
                 {selected.method}
               </Badge>
-              <span className="truncate font-mono text-xs">{selected.url}</span>
+              <span className="max-w-[16rem] shrink-0 truncate font-mono text-xs font-semibold" title={selected.host}>
+                {selected.host}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={selected.url}>
+                {selected.url}
+              </span>
               <span
                 className={cn(
-                  "ml-auto font-mono text-xs font-semibold tabular-nums",
+                  "shrink-0 font-mono text-xs font-semibold tabular-nums",
                   statusTone(selected.status),
                 )}
               >
                 {selected.status}
               </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 gap-1"
+                title={t("traffic.shotMode")}
+                onClick={() => setShotMode(true)}
+              >
+                <CameraIcon className="size-3.5" /> {t("traffic.shotMode")}
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -398,56 +587,43 @@ export default function TrafficPage() {
                 <XIcon />
               </Button>
             </div>
-            <div className="grid min-h-0 flex-1 grid-cols-2 divide-x">
+            <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 p-2">
               {(
                 [
-                  ["req", t("traffic.reqLabel"), detail?.req],
-                  ["resp", t("traffic.respLabel"), detail?.resp],
+                  ["req", t("traffic.reqLabel"), requestWithHost(detail?.req ?? "", selected.host, selected.url)],
+                  ["resp", t("traffic.respLabel"), detail?.resp ?? ""],
                 ] as const
               ).map(([key, label, body]) => (
-                <div key={key} className="flex min-h-0 min-w-0 flex-col">
-                  <div className="flex items-center gap-2 border-b px-3 py-1">
-                    <span className="text-[11px] font-medium text-muted-foreground">
-                      {label}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="ml-auto size-6 shrink-0"
-                      aria-label="copy"
-                      disabled={!body}
-                      onClick={() => {
-                        if (!body) return;
-                        navigator.clipboard?.writeText(body);
-                        setCopied(key);
-                        setTimeout(() => setCopied(null), 1200);
-                      }}
-                    >
-                      {copied === key ? (
-                        <CheckIcon className="size-3.5 text-emerald-500" />
-                      ) : (
-                        <CopyIcon className="size-3.5" />
-                      )}
-                    </Button>
-                  </div>
-                  <div className="min-h-0 flex-1 overflow-auto">
-                    {detailLoading ? (
-                      <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-                        <Loader2Icon className="size-3.5 animate-spin" />
-                        {t("traffic.loadingBody")}
-                      </div>
-                    ) : (
-                      <pre className="p-3 font-mono text-xs break-all whitespace-pre-wrap">
-                        {body || t("traffic.emptyBody")}
-                      </pre>
-                    )}
-                  </div>
+                <div key={key} className="flex min-h-0 min-w-0 flex-col gap-1">
+                  <span className="px-1 text-[11px] font-medium text-muted-foreground">{label}</span>
+                  {detailLoading ? (
+                    <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+                      <Loader2Icon className="size-3.5 animate-spin" />
+                      {t("traffic.loadingBody")}
+                    </div>
+                  ) : (
+                    <HttpPacket raw={body} className="min-h-0 flex-1" />
+                  )}
                 </div>
               ))}
             </div>
           </Card>
         )}
       </div>
+
+      {/* 截图模式：请求+响应一屏、自说明头，替代 Burp 截图（与漏洞详情共用 PacketShotModal）*/}
+      {shotMode && selected && <PacketShotModal exchange={selected} onClose={() => setShotMode(false)} />}
+
+      {/* 关联到漏洞：把勾选的流量关到某个漏洞作证据来源 */}
+      <LinkTrafficDialog
+        open={linkOpen}
+        exchangeIds={Array.from(selectedFlows)}
+        onOpenChange={setLinkOpen}
+        onDone={() => {
+          setSelectedFlows(new Set());
+          setLinkOpen(false);
+        }}
+      />
     </div>
   );
 }

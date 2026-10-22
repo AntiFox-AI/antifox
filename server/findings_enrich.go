@@ -123,7 +123,33 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	enr, _ := s.m.pg.GetFindingEnrichment(id)
-	writeJSON(w, 200, map[string]any{"finding": findingFromDB(f), "enrichment": dtoFromEnrichment(enr)})
+	// 结构化复现过程（agent 就地记录的 入口/前置/有序步骤/来源）直通前端，供"显式分步"渲染 +
+	// 每步证据挂载。空则前端回退到 enrichment.test_process 平铺展示。
+	var repro any
+	if len(f.Reproduction) > 2 {
+		// Resolve each step's verbatim request back to the exact recorded traffic
+		// exchange (stateless, via the body index), so每步 gets a jump-to-traffic link.
+		// Done here (view time) so it works for findings recorded before this feature,
+		// no agent re-run needed. The traffic store may be nil (capture off) → steps
+		// just carry no exchange_id and the UI shows no jump.
+		var rp report.Reproduction
+		if json.Unmarshal(f.Reproduction, &rp) == nil {
+			if tr := s.m.Traffic(); tr != nil {
+				for i := range rp.Steps {
+					if rp.Steps[i].ExchangeID != "" || strings.TrimSpace(rp.Steps[i].Request) == "" {
+						continue
+					}
+					if exid, ok := tr.ResolveStepExchange(rp.Steps[i].Request); ok {
+						rp.Steps[i].ExchangeID = exid
+					}
+				}
+			}
+			repro = rp
+		} else {
+			_ = json.Unmarshal(f.Reproduction, &repro)
+		}
+	}
+	writeJSON(w, 200, map[string]any{"finding": findingFromDB(f), "enrichment": dtoFromEnrichment(enr), "reproduction": repro})
 }
 
 // POST /api/findings/{id}/enrich — run AI enrichment, persist, return it.
@@ -151,9 +177,9 @@ func (s *Server) findingSetupTraffic(taskID int64) string {
 		var rows []traffic.ExchangeMeta
 		var err error
 		if len(hosts) > 0 {
-			rows, _, err = s.m.traffic.PageHosts(hosts, "", kw, 0, 3)
+			rows, _, err = s.m.traffic.PageHosts(hosts, "", kw, traffic.TrafficFilter{}, 0, 3)
 		} else {
-			rows, _, err = s.m.traffic.Page("", "", kw, 0, 3)
+			rows, _, err = s.m.traffic.Page("", "", kw, traffic.TrafficFilter{}, 0, 3)
 		}
 		if err != nil {
 			continue

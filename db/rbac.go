@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// 多用户 RBAC 数据层（AntiFox 平台权限，移植自旧平台并适配 AntiFox 的 PostgreSQL + 模块）。
+// 多用户 RBAC 数据层（AntiFox 平台权限，基于 PostgreSQL + 模块化设计）。
 
 const (
 	RBACRoleAdmin    = "admin"

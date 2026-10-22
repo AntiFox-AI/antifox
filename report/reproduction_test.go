@@ -21,7 +21,7 @@ const sampleRepro = `{
 }`
 
 func TestReproToBlocks_ZhCN(t *testing.T) {
-	blocks := reproToBlocks(json.RawMessage(sampleRepro), "zh-CN")
+	blocks := reproToBlocks(json.RawMessage(sampleRepro), "zh-CN", nil)
 	if len(blocks) == 0 {
 		t.Fatal("expected blocks, got none")
 	}
@@ -49,7 +49,7 @@ func TestReproToBlocks_ZhCN(t *testing.T) {
 }
 
 func TestReproToBlocks_EnUS_Labels(t *testing.T) {
-	blocks := reproToBlocks(json.RawMessage(sampleRepro), "en-US")
+	blocks := reproToBlocks(json.RawMessage(sampleRepro), "en-US", nil)
 	joined := ""
 	for _, b := range blocks {
 		joined += b.Content + "\n"
@@ -63,7 +63,7 @@ func TestReproToBlocks_EnUS_Labels(t *testing.T) {
 
 func TestReproToBlocks_Empty(t *testing.T) {
 	for _, raw := range []string{"", "{}", "null"} {
-		if b := reproToBlocks(json.RawMessage(raw), "zh-CN"); len(b) != 0 {
+		if b := reproToBlocks(json.RawMessage(raw), "zh-CN", nil); len(b) != 0 {
 			t.Errorf("reproToBlocks(%q) = %d blocks, want 0", raw, len(b))
 		}
 	}
@@ -82,7 +82,7 @@ func TestAssembleVuln_PrefersReproduction(t *testing.T) {
 		Title:       "OTP 校验绕过导致任意账户接管",
 		TestProcess: []procBlock{{Type: "text", Content: "AI-reconstructed step that should NOT win"}},
 	}
-	d := assembleVuln("zh-CN", f, enr, "3.1.1", "")
+	d := assembleVuln("zh-CN", f, enr, "3.1.1", "", nil)
 	joined := ""
 	for _, b := range d.TestProcess {
 		joined += b.Content + "\n"

@@ -9,12 +9,12 @@ import { MOCK } from "@/lib/mock/enabled";
 import { mockHandle } from "@/lib/mock/handler";
 import type {
   Task, Stats, Asset, AssetNode, Edge, Company, TaskNode, Finding, Activity,
-  Audit, TrafficResp, TrafficDetail, Settings, LLMProfile, LLMPoolStatus, Agent, AgentDetail, PromptVar,
+  Audit, TrafficResp, TrafficDetail, TrafficExchange, Settings, LLMProfile, LLMPoolStatus, Agent, AgentDetail, PromptVar,
   PromptVersion, MCPServer, MCPStat, MCPStatsResp, MCPTool, SkillItem, SkillStatsResp, TokenUsage, TokenTotal, DailyTokenBucket,
   Tool, Conversation, AgentTrigger,
   InterceptRule, InterceptPending, InterceptApprovalRow,
   TaskAssetView, SSProject, SSTask, ConvTokenSummary,
-  RBACUser, RBACRole, RBACMe, AuditLog, ReportJob, Enrichment, FindingDetailResp, EnrichJob,
+  RBACUser, RBACRole, RBACMe, AuditLog, ReportJob, Enrichment, FindingDetailResp, EnrichJob, FindingEvidenceItem,
   ReportSettings, ReportRecord, ReportTemplate,
   KnowledgeDoc, KnowledgeHit, KnowledgeConfig, KnowledgeLog,
 } from "@/lib/types";
@@ -208,16 +208,32 @@ export const api = {
 
   // ---- traffic / audit / report / chat ----
   audit: (task?: string) => get<Audit>(`/audit${tq(task)}`),
-  traffic: (page = 0, size = 100, host = "", method = "", q = "", task = 0) =>
+  traffic: (
+    page = 0,
+    size = 100,
+    host = "",
+    method = "",
+    q = "",
+    task = 0,
+    adv?: { path?: string; status?: string; respMin?: number; respMax?: number; body?: string },
+  ) =>
     get<TrafficResp>(
       `/traffic?page=${page}&size=${size}` +
         (task ? `&task=${task}` : "") +
         (host ? `&host=${encodeURIComponent(host)}` : "") +
         (method && method !== "all" ? `&method=${encodeURIComponent(method)}` : "") +
-        (q ? `&q=${encodeURIComponent(q)}` : ""),
+        (q ? `&q=${encodeURIComponent(q)}` : "") +
+        (adv?.path ? `&path=${encodeURIComponent(adv.path)}` : "") +
+        (adv?.status && adv.status !== "all" ? `&status=${adv.status}` : "") +
+        (adv?.respMin ? `&resp_min=${adv.respMin}` : "") +
+        (adv?.respMax ? `&resp_max=${adv.respMax}` : "") +
+        (adv?.body ? `&body=${encodeURIComponent(adv.body)}` : ""),
     ),
   trafficExchange: (id: string) =>
     get<TrafficDetail>(`/traffic/exchange?id=${encodeURIComponent(id)}`),
+  // One exchange's metadata by id — for deep-linking from a finding to the exact packet.
+  trafficMeta: (id: string) =>
+    get<TrafficExchange>(`/traffic/meta?id=${encodeURIComponent(id)}`),
 
   // ---- app settings (runtime toggles) ----
   settings: () => get<Settings>(`/settings`),
@@ -244,6 +260,7 @@ export const api = {
       locale?: string;
       findingIds?: string[];
       templateId?: number;
+      format?: string; // "" / docx | md
     },
   ) => {
     const qs = new URLSearchParams();
@@ -254,6 +271,7 @@ export const api = {
     if (opts?.locale) qs.set("locale", opts.locale);
     if (opts?.findingIds && opts.findingIds.length) qs.set("finding_ids", opts.findingIds.join(","));
     if (opts?.templateId) qs.set("template_id", String(opts.templateId));
+    if (opts?.format) qs.set("format", opts.format);
     return post<ReportJob>(`/report/generate?${qs.toString()}`, {});
   },
   reportStatus: (task?: string) => get<ReportJob>(`/report/status${tq(task)}`),
@@ -325,6 +343,35 @@ export const api = {
   findingEnrichStatus: (nodeId: string) => get<EnrichJob>(`/findings/${nodeId}/enrich/status`),
   findingUpdate: (nodeId: string, patch: { name?: string; target?: string; severity?: string; status?: string }) =>
     put<Enrichment>(`/findings/${nodeId}`, patch),
+  // ---- 漏洞证据截图 ----
+  findingEvidenceList: (nodeId: string) =>
+    get<{ items: FindingEvidenceItem[] }>(`/findings/${nodeId}/evidence`).then((r) => r.items ?? []),
+  findingEvidenceUpload: async (nodeId: string, file: File, caption = "", stepIndex = 0) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (caption) fd.append("caption", caption);
+    fd.append("step_index", String(stepIndex));
+    const token = getToken();
+    const r = await fetch(`/api/findings/${nodeId}/evidence`, {
+      method: "POST",
+      body: fd,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body?.error || `上传失败(${r.status})`);
+    return body as FindingEvidenceItem;
+  },
+  findingEvidenceUpdate: (nodeId: string, eid: number, patch: { caption: string; step_index: number; sort_order: number }) =>
+    put<{ ok: boolean }>(`/findings/${nodeId}/evidence/${eid}`, patch),
+  findingEvidenceDelete: (nodeId: string, eid: number) =>
+    del<{ deleted: number }>(`/findings/${nodeId}/evidence/${eid}`),
+  // ---- 漏洞↔流量关联 ----
+  findingTrafficList: (nodeId: string) =>
+    get<{ exchanges: TrafficExchange[] }>(`/findings/${nodeId}/traffic`).then((r) => r.exchanges ?? []),
+  findingTrafficLink: (nodeId: string, exchangeIds: string[]) =>
+    post<{ ok: boolean; linked: number }>(`/findings/${nodeId}/traffic`, { exchange_ids: exchangeIds }),
+  findingTrafficUnlink: (nodeId: string, exchangeId: string) =>
+    del<{ ok: boolean }>(`/findings/${nodeId}/traffic/${encodeURIComponent(exchangeId)}`),
   chat: (message: string, task?: string) => post<{ reply: string; mode: string }>(`/chat${tq(task)}`, { message }),
   stopChat: (taskId: string) => post<{ status: string }>(`/tasks/${taskId}/chat/stop`, {}),
   gc: (ttl = 86400) => post<{ removed: number }>(`/gc?ttl=${ttl}`, {}),

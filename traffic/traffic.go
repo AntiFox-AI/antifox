@@ -50,6 +50,19 @@ CREATE INDEX IF NOT EXISTS idx_ex_ts   ON exchanges(ts);
 
 const maxInlineBody = 256 * 1024
 
+// maxIndexBody caps how much of each decoded req/resp body goes into the full-text
+// body index — enough for keyword search + snippets while bounding index growth on
+// large HTML/asset responses.
+const maxIndexBody = 64 * 1024
+
+// bodyFTSSchema is the trigram FTS5 index over DECODED request/response bodies,
+// powering "正文搜索" (human keyword search) AND step↔exchange correlation. It is a
+// search aux keyed by exchange id (UNINDEXED, stored for retrieval); the exchanges
+// table stays the source of truth, so any stale id here is harmless (it just won't
+// join a real row). Created separately + guarded so a build lacking FTS5 degrades
+// to metadata-only search instead of failing to open the store.
+const bodyFTSSchema = `CREATE VIRTUAL TABLE IF NOT EXISTS bodies USING fts5(req, resp, id UNINDEXED, tokenize='trigram')`
+
 // Traffic runs the recording proxy and owns the file tree + index.
 type Traffic struct {
 	dir   string
@@ -58,6 +71,7 @@ type Traffic struct {
 	wmu   sync.Mutex
 	seq   atomic.Int64
 	proxy *mproxy.Proxy
+	ftsOK bool // trigram body index available (CREATE succeeded); false ⇒ degrade
 	// pass is the set of hosts whose MITM interception failed for a proxy/protocol
 	// reason; connections to them are tunneled transparently (fail-open) so the
 	// request still reaches the target — unrecorded — instead of being killed.
@@ -86,6 +100,15 @@ func Open(dir, addr string) (*Traffic, error) {
 		return nil, err
 	}
 	t := &Traffic{dir: dir, addr: addr, db: db}
+	// Trigram body index (guarded): powers full-text 正文搜索 + step↔exchange
+	// correlation. If FTS5 is unavailable we degrade to metadata-only search rather
+	// than refusing to open the store.
+	if _, err := db.Exec(bodyFTSSchema); err != nil {
+		log.Printf("[traffic] 正文索引(FTS5 trigram)不可用，降级为仅元数据搜索：%v", err)
+	} else {
+		t.ftsOK = true
+		go t.backfillBodies() // 已有记录的正文补进索引（后台、不阻塞启动）
+	}
 
 	p, err := mproxy.NewProxy(&mproxy.Options{
 		Addr:        addr,
@@ -232,6 +255,33 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 		id, now.Unix(), host, method, tmpl, f.Request.URL.String(), f.Response.StatusCode, ct,
 		len(f.Request.Body), len(f.Response.Body), rel)
 	t.wmu.Unlock()
+
+	// Full-text body index (decoded + capped). Stored bodies stay raw-on-wire; the
+	// index holds decoded text so "正文搜索" and step correlation work on readable
+	// content. Separate so a disabled/absent FTS never blocks capture.
+	if t.ftsOK {
+		t.indexBody(id, decodedForIndex(f.Request.Body, f.Request.DecodedBody), decodedForIndex(f.Response.Body, f.Response.DecodedBody))
+	}
+}
+
+// decodedForIndex decodes a flow body via its own Content-Encoding codec and caps
+// it for the index. Falls back to the raw bytes on decode failure.
+func decodedForIndex(raw []byte, dec func() ([]byte, error)) string {
+	b := raw
+	if d, err := dec(); err == nil && d != nil {
+		b = d
+	}
+	return capStr(string(b), maxIndexBody)
+}
+
+// indexBody inserts one exchange's decoded bodies into the trigram FTS index.
+func (t *Traffic) indexBody(id, req, resp string) {
+	if req == "" && resp == "" {
+		return
+	}
+	t.wmu.Lock()
+	_, _ = t.db.Exec(`INSERT INTO bodies(id, req, resp) VALUES(?,?,?)`, id, req, resp)
+	t.wmu.Unlock()
 }
 
 // bodyOrBlob returns the body inline if small, else stores it content-addressed
@@ -327,7 +377,152 @@ func (t *Traffic) Search(host string, page, size int) ([]ExchangeMeta, error) {
 // indexed metadata columns (host/url/method/content-type/status), together with
 // the total number of rows matching that filter (for the UI's pagination).
 // Newest first. Bodies are never included.
-func (t *Traffic) Page(host, method, q string, page, size int) (rows []ExchangeMeta, total int, err error) {
+// TrafficFilter 高级筛选条件。path/status/resp_len 走索引列；Body 走 FTS trigram
+// 正文索引（请求+响应解码后内容，≥3 字）。
+type TrafficFilter struct {
+	Path      string // 路径关键词（path/url LIKE）
+	StatusMin int    // 状态码区间下限（0=不限）
+	StatusMax int    // 状态码区间上限
+	RespMin   int    // 响应长度下限(字节，0=不限)
+	RespMax   int    // 响应长度上限(字节，0=不限)
+	Body      string // 正文关键词（请求/响应解码后全文，FTS trigram，≥3 字）
+}
+
+// fts5Quote wraps a user keyword as a literal FTS5 phrase ("…") with embedded
+// double-quotes doubled, so special characters are matched literally (via trigram)
+// instead of being parsed as FTS query syntax.
+func fts5Quote(kw string) string {
+	return `"` + strings.ReplaceAll(kw, `"`, `""`) + `"`
+}
+
+// bodyCond returns an SQL fragment + arg restricting to exchanges whose decoded
+// request/response body matches the trigram keyword. ok=false when body search is
+// unavailable (FTS disabled) or the keyword is shorter than the 3-char trigram
+// minimum. Callers AND-join it into their WHERE.
+func (t *Traffic) bodyCond(keyword string) (cond, arg string, ok bool) {
+	kw := strings.TrimSpace(keyword)
+	if !t.ftsOK || len([]rune(kw)) < 3 {
+		return "", "", false
+	}
+	return "id IN (SELECT id FROM bodies WHERE bodies MATCH ?)", fts5Quote(kw), true
+}
+
+// BodyMatchSnippets returns id→highlighted snippet for the given page's exchange
+// ids, showing WHERE the body keyword matched. Markers \x01/\x02 wrap the hit for
+// the UI to render; empty map when body search isn't applicable.
+func (t *Traffic) BodyMatchSnippets(ids []string, keyword string) map[string]string {
+	out := map[string]string{}
+	kw := strings.TrimSpace(keyword)
+	if !t.ftsOK || len([]rune(kw)) < 3 || len(ids) == 0 {
+		return out
+	}
+	ph := make([]string, len(ids))
+	args := make([]any, 0, len(ids)+1)
+	for i, id := range ids {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, fts5Quote(kw))
+	// snippet(tbl, -1, open, close, ellipsis, maxTokens): -1 picks the best-matching
+	// column (req or resp), so the excerpt comes from wherever the hit is.
+	q := `SELECT id, snippet(bodies, -1, char(1), char(2), '…', 12) FROM bodies WHERE id IN (` +
+		strings.Join(ph, ",") + `) AND bodies MATCH ?`
+	rows, err := t.db.Query(q, args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, snip string
+		if rows.Scan(&id, &snip) == nil {
+			out[id] = snip
+		}
+	}
+	return out
+}
+
+// backfillBodies populates the trigram index for already-recorded exchanges.
+// NEWEST first, so the traffic a user is actively working with becomes searchable
+// within seconds while the long historical tail fills in behind it. Append-only and
+// resumable across restarts (already-indexed ids are skipped), batched in
+// transactions to stay fast and keep the write lock held only briefly per batch.
+func (t *Traffic) backfillBodies() {
+	if !t.ftsOK {
+		return
+	}
+	rows, err := t.db.Query(`SELECT id, path FROM exchanges WHERE id NOT IN (SELECT id FROM bodies) ORDER BY ts DESC`)
+	if err != nil {
+		return
+	}
+	type row struct{ id, path string }
+	var todo []row
+	for rows.Next() {
+		var r row
+		if rows.Scan(&r.id, &r.path) == nil {
+			todo = append(todo, r)
+		}
+	}
+	rows.Close()
+	if len(todo) == 0 {
+		return
+	}
+	log.Printf("[traffic] 正文索引回填开始：%d 条（最新优先）", len(todo))
+	const batch = 1000
+	type ent struct{ id, req, resp string }
+	done := 0
+	for i := 0; i < len(todo); i += batch {
+		end := i + batch
+		if end > len(todo) {
+			end = len(todo)
+		}
+		// Read + decode OUTSIDE the write lock — disk I/O (the slow part) must not
+		// block live capture. Only the batched insert holds the lock, briefly.
+		ents := make([]ent, 0, end-i)
+		for _, r := range todo[i:end] {
+			rb, _ := os.ReadFile(filepath.Join(t.dir, r.path, "request.http"))
+			pb, _ := os.ReadFile(filepath.Join(t.dir, r.path, "response.http"))
+			// Insert even when a body is empty, so the id is marked done and not
+			// re-scanned next restart.
+			ents = append(ents, ent{r.id, decodedBodyText(string(rb), maxIndexBody), decodedBodyText(string(pb), maxIndexBody)})
+		}
+		t.wmu.Lock()
+		if tx, err := t.db.Begin(); err == nil {
+			for _, e := range ents {
+				_, _ = tx.Exec(`INSERT INTO bodies(id, req, resp) VALUES(?,?,?)`, e.id, e.req, e.resp)
+			}
+			_ = tx.Commit()
+		}
+		t.wmu.Unlock()
+		done = end
+		if done%20000 < batch {
+			log.Printf("[traffic] 正文索引回填进度：%d / %d", done, len(todo))
+		}
+	}
+	log.Printf("[traffic] 正文索引回填完成：%d 条", done)
+}
+
+// conds 把高级筛选编译成 SQL 条件片段 + 参数（按出现顺序一一对应 ? 占位）。
+func (f TrafficFilter) conds() (parts []string, args []any) {
+	if p := strings.TrimSpace(f.Path); p != "" {
+		parts = append(parts, "(path LIKE ? OR url LIKE ?)")
+		args = append(args, "%"+p+"%", "%"+p+"%")
+	}
+	if f.StatusMin > 0 && f.StatusMax >= f.StatusMin {
+		parts = append(parts, "status BETWEEN ? AND ?")
+		args = append(args, f.StatusMin, f.StatusMax)
+	}
+	if f.RespMin > 0 {
+		parts = append(parts, "resp_len >= ?")
+		args = append(args, f.RespMin)
+	}
+	if f.RespMax > 0 {
+		parts = append(parts, "resp_len <= ?")
+		args = append(args, f.RespMax)
+	}
+	return
+}
+
+func (t *Traffic) Page(host, method, q string, filter TrafficFilter, page, size int) (rows []ExchangeMeta, total int, err error) {
 	if size <= 0 || size > 500 {
 		size = 100
 	}
@@ -357,6 +552,15 @@ func (t *Traffic) Page(host, method, q string, page, size int) (rows []ExchangeM
 		add("(host LIKE ? OR url LIKE ? OR url_template LIKE ? OR method LIKE ? OR content_type LIKE ? OR CAST(status AS TEXT) LIKE ?)",
 			like, like, like, like, like, like)
 	}
+	if fp, fa := filter.conds(); len(fp) > 0 {
+		for _, part := range fp {
+			add(part)
+		}
+		args = append(args, fa...)
+	}
+	if cond, arg, ok := t.bodyCond(filter.Body); ok {
+		add(cond, arg)
+	}
 	if err = t.db.QueryRow(`SELECT COUNT(*) FROM exchanges`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -378,11 +582,48 @@ func (t *Traffic) Page(host, method, q string, page, size int) (rows []ExchangeM
 	return rows, total, rs.Err()
 }
 
+// MetaByIDs 按 exchange id 批量取元数据（供漏洞"关联流量"展示；报文正文仍按需另取）。
+// 全参数化(? 占位)，保持传入顺序。
+func (t *Traffic) MetaByIDs(ids []string) ([]ExchangeMeta, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		ph[i] = "?"
+		args[i] = id
+	}
+	rs, err := t.db.Query(`SELECT id,ts,host,method,url_template,url,status,content_type,resp_len,path FROM exchanges WHERE id IN (`+strings.Join(ph, ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rs.Close()
+	byID := map[string]ExchangeMeta{}
+	for rs.Next() {
+		var m ExchangeMeta
+		if err := rs.Scan(&m.ID, &m.TS, &m.Host, &m.Method, &m.URLTemplate, &m.URL, &m.Status, &m.ContentType, &m.RespLen, &m.Path); err != nil {
+			return nil, err
+		}
+		byID[m.ID] = m
+	}
+	if err := rs.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]ExchangeMeta, 0, len(ids))
+	for _, id := range ids {
+		if m, ok := byID[id]; ok {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 // PageHosts is Page restricted to a set of hostnames (a task's asset hosts), so
 // the task-agnostic MITM store can be scoped to one task/engagement. An empty
 // hosts slice matches nothing (a task with no known hosts has no traffic).
 // Newest first; bodies never included.
-func (t *Traffic) PageHosts(hosts []string, method, q string, page, size int) (rows []ExchangeMeta, total int, err error) {
+func (t *Traffic) PageHosts(hosts []string, method, q string, filter TrafficFilter, page, size int) (rows []ExchangeMeta, total int, err error) {
 	if len(hosts) == 0 {
 		return nil, 0, nil
 	}
@@ -407,6 +648,16 @@ func (t *Traffic) PageHosts(hosts []string, method, q string, page, size int) (r
 		like := "%" + s + "%"
 		where += " AND (host LIKE ? OR url LIKE ? OR url_template LIKE ? OR method LIKE ? OR content_type LIKE ? OR CAST(status AS TEXT) LIKE ?)"
 		args = append(args, like, like, like, like, like, like)
+	}
+	if fp, fa := filter.conds(); len(fp) > 0 {
+		for _, part := range fp {
+			where += " AND " + part
+		}
+		args = append(args, fa...)
+	}
+	if cond, arg, ok := t.bodyCond(filter.Body); ok {
+		where += " AND " + cond
+		args = append(args, arg)
 	}
 	if err = t.db.QueryRow(`SELECT COUNT(*) FROM exchanges`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -461,6 +712,12 @@ func (t *Traffic) StatusCounts(hosts []string) (map[int]int, error) {
 }
 
 // Get returns the full request/response of one exchange (reads from the tree).
+// Bodies are stored exactly as they crossed the wire (faithful capture); if the
+// server used Content-Encoding (gzip/br/deflate/zstd) the stored body is the
+// compressed bytes, which render as garbage. We decode for VIEWING here — keeping
+// the original headers intact (so the real server behavior shows) but turning the
+// body into readable text, like Burp does. Benefits detail view, 截图模式, report
+// enrichment and the traffic_get tool in one place.
 func (t *Traffic) Get(id string) (req, resp string, err error) {
 	var rel string
 	if err = t.db.QueryRow(`SELECT path FROM exchanges WHERE id=?`, id).Scan(&rel); err != nil {
@@ -468,7 +725,159 @@ func (t *Traffic) Get(id string) (req, resp string, err error) {
 	}
 	rb, _ := os.ReadFile(filepath.Join(t.dir, rel, "request.http"))
 	pb, _ := os.ReadFile(filepath.Join(t.dir, rel, "response.http"))
-	return string(rb), string(pb), nil
+	return decodeForView(string(rb)), decodeForView(string(pb)), nil
+}
+
+// decodeForView splits a stored "<head>\n\n<body>" exchange, and if the head
+// declares a Content-Encoding, decompresses the body for human display. On any
+// failure (no blank-line boundary, unsupported/truncated encoding, or a @blob
+// pointer instead of inline bytes) it returns the text unchanged — never losing
+// data. Decoding reuses go-mitmproxy's codec (gzip/br/deflate/zstd) so we don't
+// re-implement or pull extra deps.
+func decodeForView(raw string) string {
+	head, body, ok := splitExchange(raw)
+	if !ok {
+		return raw
+	}
+	return head + "\n\n" + decodeBody(head, body)
+}
+
+// splitExchange splits a stored "<head>\n\n<body>" exchange. ok=false when there
+// is no blank-line boundary, the body is empty, or it is a large-body "@blob …"
+// pointer rather than inline bytes (nothing to decode or index in those cases).
+func splitExchange(raw string) (head, body string, ok bool) {
+	i := strings.Index(raw, "\n\n")
+	if i < 0 {
+		return "", "", false
+	}
+	head, body = raw[:i], raw[i+2:]
+	if body == "" || strings.HasPrefix(body, "@blob ") {
+		return head, body, false
+	}
+	return head, body, true
+}
+
+// decodeBody decompresses body per head's Content-Encoding (gzip/br/deflate/zstd),
+// reusing go-mitmproxy's codec so we add no deps. Returns body unchanged on no /
+// unknown encoding or decode failure — never losing data.
+func decodeBody(head, body string) string {
+	enc := ""
+	for _, line := range strings.Split(head, "\n") {
+		if k, v, ok := strings.Cut(line, ":"); ok && strings.EqualFold(strings.TrimSpace(k), "Content-Encoding") {
+			enc = strings.TrimSpace(v)
+			break
+		}
+	}
+	if enc == "" || strings.EqualFold(enc, "identity") {
+		return body
+	}
+	h := http.Header{}
+	h.Set("Content-Encoding", enc)
+	r := &mproxy.Response{Header: h, Body: []byte(body)}
+	if dec, err := r.DecodedBody(); err == nil && dec != nil {
+		return string(dec)
+	}
+	return body
+}
+
+// decodedBodyText returns just the decoded body portion of a stored exchange file,
+// capped and sanitized to valid UTF-8 — the text fed into the full-text body index.
+// Empty when there is no inline body (blob/none).
+func decodedBodyText(raw string, max int) string {
+	head, body, ok := splitExchange(raw)
+	if !ok {
+		return ""
+	}
+	return capStr(decodeBody(head, body), max)
+}
+
+// capStr truncates s to at most max bytes, keeping the result valid UTF-8 so the
+// trigram tokenizer never chokes on a split multibyte rune.
+func capStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return strings.ToValidUTF8(s[:max], "")
+}
+
+// ResolveStepExchange maps a reproduction step's verbatim request back to the one
+// real recorded exchange it cites. method+path narrow to the endpoint; a verbatim
+// body slice disambiguates same-endpoint requests via the trigram index (e.g. the
+// probed username in username-enumeration). Returns ok=false and abstains rather
+// than guessing when the match is ambiguous — a wrong evidence link is worse than
+// none. The agent's verbatim request IS the designation; this resolves it.
+func (t *Traffic) ResolveStepExchange(reqText string) (string, bool) {
+	method, path, body := parseReqLine(reqText)
+	if method == "" || path == "" {
+		return "", false
+	}
+	where := "method=? AND url LIKE ?"
+	args := []any{strings.ToUpper(method), "%" + path + "%"}
+	usedBody := false
+	if t.ftsOK {
+		if phrase := bodyPhrase(body); phrase != "" {
+			where += " AND id IN (SELECT id FROM bodies WHERE bodies MATCH ?)"
+			args = append(args, fts5Quote(phrase))
+			usedBody = true
+		}
+	}
+	rows, err := t.db.Query(`SELECT id FROM exchanges WHERE `+where+` ORDER BY ts DESC LIMIT 2`, args...)
+	if err != nil {
+		return "", false
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	switch {
+	case len(ids) == 1:
+		return ids[0], true // unambiguous
+	case len(ids) >= 2 && usedBody:
+		return ids[0], true // body-disambiguated; newest of the exact-body matches
+	default:
+		return "", false // ambiguous without a body discriminator → abstain
+	}
+}
+
+// parseReqLine extracts the method, url PATH (query stripped), and body from a
+// verbatim request text ("METHOD /path?q PROTO\n<headers>\n\n<body>").
+func parseReqLine(raw string) (method, path, body string) {
+	first := raw
+	if nl := strings.IndexByte(raw, '\n'); nl >= 0 {
+		first = raw[:nl]
+	}
+	if parts := strings.Fields(strings.TrimSpace(first)); len(parts) >= 2 {
+		method = parts[0]
+		target := parts[1]
+		if i := strings.IndexByte(target, '?'); i >= 0 {
+			path = target[:i]
+		} else {
+			path = target
+		}
+	}
+	if i := strings.Index(raw, "\n\n"); i >= 0 {
+		body = raw[i+2:]
+	}
+	return
+}
+
+// bodyPhrase returns a verbatim leading slice of the body to use as the trigram
+// disambiguator (empty when too short for trigram). Capped so the FTS phrase stays
+// cheap while still covering the discriminating value (usually early in the body).
+func bodyPhrase(body string) string {
+	b := strings.TrimSpace(body)
+	r := []rune(b)
+	if len(r) < 3 {
+		return ""
+	}
+	if len(r) > 400 {
+		r = r[:400]
+	}
+	return string(r)
 }
 
 // Count returns total recorded exchanges.
@@ -533,7 +942,7 @@ func (t *Traffic) Tools() []actool.CoreTool {
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"host":     map[string]any{"type": "string", "description": "按主机过滤（必填，如 '192.168.1.100:8080'）"},
+				"host":     map[string]any{"type": "string", "description": "按主机过滤（必填，如 '192.168.1.100:8082'）"},
 				"contains": map[string]any{"type": "string", "description": "URL 子串过滤（可选，如 'api' / 'login'）"},
 				"limit":    map[string]any{"type": "integer", "description": "每页条数，默认 3，最大 10"},
 				"page":     map[string]any{"type": "integer", "description": "页码，从 0 开始，默认 0（按 ts 倒序分页）"},
@@ -550,7 +959,7 @@ func (t *Traffic) Tools() []actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			if strings.TrimSpace(a.Host) == "" {
-				return actool.Errorf("host 为必填参数：请指定要查询的主机（如 '192.168.1.100:8080'），避免全库扫描。"), nil
+				return actool.Errorf("host 为必填参数：请指定要查询的主机（如 '192.168.1.100:8082'），避免全库扫描。"), nil
 			}
 			rows, err := t.query(a.Host, a.Contains, a.Page, a.Limit)
 			if err != nil {

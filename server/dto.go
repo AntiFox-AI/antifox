@@ -101,6 +101,9 @@ type TrafficExchangeDTO struct {
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type"`
 	RespLen     int    `json:"resp_len"`
+	// MatchSnippet is the highlighted body excerpt when the page was filtered by a
+	// 正文 keyword (\x01/\x02 wrap the hit); empty otherwise.
+	MatchSnippet string `json:"match_snippet,omitempty"`
 }
 
 func trafficDTOs(ex []traffic.ExchangeMeta) []TrafficExchangeDTO {
@@ -187,10 +190,13 @@ type FindingDTO struct {
 	TaskDescription string `json:"task_description,omitempty"`
 	TS              string `json:"ts"`
 	// enrichment summary (merged from finding_enrichment for list display)
-	EnrName   string `json:"enr_name,omitempty"`
-	EnrTarget string `json:"enr_target,omitempty"`
-	Status    string `json:"status,omitempty"` // open|confirmed|fixed|false_positive|ignored
-	Enriched  bool   `json:"enriched,omitempty"`
+	EnrName   string  `json:"enr_name,omitempty"`
+	EnrTarget string  `json:"enr_target,omitempty"`
+	Status    string  `json:"status,omitempty"` // open|confirmed|fixed|false_positive|ignored
+	Enriched      bool    `json:"enriched,omitempty"`
+	CVSSScore     float64 `json:"cvss_score,omitempty"`     // 富化后的 CVSS 分值（列表直接显示）
+	EvidenceCount int     `json:"evidence_count,omitempty"` // 证据截图数量（列表显示"证据 N 张"）
+	TrafficCount  int     `json:"traffic_count,omitempty"`  // 关联流量条数（列表显示"关联流量 N 条"）
 }
 
 // findingPayload mirrors the JSON written by the worker's report_finding tool

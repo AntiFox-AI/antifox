@@ -48,6 +48,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 	in := s.buildReportInput(t, r.URL.Query())
 	taskID := t.ID
 	taskDesc := t.Description
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format"))) // ""/docx | md
 	go func() {
 		// A panic in the builder must not leave the job stuck in "generating" forever.
 		defer func() {
@@ -58,7 +59,13 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 				s.reportMu.Unlock()
 			}
 		}()
-		outPath, err := report.GenerateDocx(s.ctx, s.m.pg, in, filepath.Join(s.dataDir, "reports"), taskID)
+		var outPath string
+		var err error
+		if format == "md" || format == "markdown" {
+			outPath, err = report.GenerateMarkdownFile(s.ctx, s.m.pg, in, filepath.Join(s.dataDir, "reports"), taskID)
+		} else {
+			outPath, err = report.GenerateDocx(s.ctx, s.m.pg, in, filepath.Join(s.dataDir, "reports"), taskID)
+		}
 		s.reportMu.Lock()
 		if err != nil {
 			job.Status = "failed"
@@ -118,9 +125,21 @@ func (s *Server) downloadReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "报告尚未生成")
 		return
 	}
-	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Type", reportContentType(path))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	http.ServeFile(w, r, path)
+}
+
+// reportContentType 按扩展名给出报告下载的 MIME（支持 .docx / .md / .zip[MD 交付包]）。
+func reportContentType(path string) string {
+	switch {
+	case strings.HasSuffix(strings.ToLower(path), ".zip"):
+		return "application/zip"
+	case strings.HasSuffix(strings.ToLower(path), ".md"):
+		return "text/markdown; charset=utf-8"
+	default:
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	}
 }
 
 // buildReportInput flattens the task's confirmed findings + global asset counts
@@ -164,6 +183,7 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *report.GenInp
 		}
 		_ = json.Unmarshal(n.Payload, &p)
 		fi := report.FindingInput{
+			NodeID:    n.ID,
 			VulnClass: p.VulnClass, Severity: p.Severity, Summary: p.Summary,
 			PoC: p.Evidence.PoC, CreatedAt: n.CreatedAt,
 			Reproduction: p.Reproduction, // authoritative test_process — rendered verbatim, AI skips rebuild
@@ -193,7 +213,7 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *report.GenInp
 		}
 	}
 	// 项目名(封面/标题)用【短任务名】，绝不用整段描述——否则用户把目标系统清单写进
-	// 描述时会被灌进封面"项目名称"、撑爆封面。完整描述另经 Scope 喂 AI。
+	// 描述时会被灌进封面"项目名称"、撑爆封面(整段描述当标题会很乱)。完整描述另经 Scope 喂 AI。
 	project := defaultStrSrv(t.Name, "渗透测试项目")
 	if len([]rune(project)) > 40 { // 名称异常长(误填清单)→ 回退,别撑爆封面
 		project = "渗透测试项目"

@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS llm_profile_health (
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS tasks (
     id             BIGSERIAL PRIMARY KEY,
-    name           TEXT NOT NULL DEFAULT '',   -- 简短任务名/目标(如 Acme / demo-shop);空=回退 #id·描述
+    name           TEXT NOT NULL DEFAULT '',   -- 简短任务名/目标(如 官网渗透 / 内网测试);空=回退 #id·描述
     description    TEXT NOT NULL,
     goal           TEXT NOT NULL,
     exploration_id BIGINT NOT NULL UNIQUE
@@ -650,6 +650,30 @@ CREATE TABLE IF NOT EXISTS finding_enrichment (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_finding_enrichment_status ON finding_enrichment(status);
+
+-- §P2 漏洞证据截图：按 exploration 节点 id 关联，文件存 dataDir/report_assets/evidence/<node_id>/。
+-- 发现页展示 + 报告(DOCX/MD)复现步骤内嵌共用；step_index 对应复现步骤序号(0=概览)。
+CREATE TABLE IF NOT EXISTS finding_evidence (
+    id          BIGSERIAL PRIMARY KEY,
+    node_id     BIGINT NOT NULL,
+    filename    TEXT NOT NULL,                -- report_assets/evidence/<node_id>/ 下的文件名
+    caption     TEXT NOT NULL DEFAULT '',     -- 图注
+    step_index  INT NOT NULL DEFAULT 0,       -- 对应复现步骤序号(0=未指定/概览)
+    sort_order  INT NOT NULL DEFAULT 0,       -- 展示顺序
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_finding_evidence_node ON finding_evidence(node_id);
+
+-- §P3 漏洞↔流量关联：把录制流量(MITM 索引里的某条 exchange)关到某漏洞作证据来源。
+-- 报文元数据在流量库(SQLite)、关联在此(PG)；source=manual(流量页手动) | auto(任务引擎挖洞时自动记录)。
+CREATE TABLE IF NOT EXISTS finding_traffic (
+    node_id     BIGINT NOT NULL,
+    exchange_id TEXT NOT NULL,
+    source      TEXT NOT NULL DEFAULT 'manual',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (node_id, exchange_id)
+);
+CREATE INDEX IF NOT EXISTS idx_finding_traffic_node ON finding_traffic(node_id);
 
 -- §Q 报告管理：组织级报告设置(单例) + 已生成报告清单。
 CREATE TABLE IF NOT EXISTS report_settings (

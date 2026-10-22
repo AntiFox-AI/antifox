@@ -244,7 +244,7 @@ func (s *Server) downloadReportByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "报告文件已不存在")
 		return
 	}
-	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Type", reportContentType(path))
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", rec.Filename))
 	http.ServeFile(w, r, path)
 }

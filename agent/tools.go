@@ -599,9 +599,10 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 					"prerequisites": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "复现前置：需要的账号/角色/会话/前序步骤。若需测试账号，写清【如何注册】(接口+关键请求要点)——从零可复现。"},
 					"steps": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{
 						"request":  str("该步的真实请求原文（方法+URL+关键 header+body），逐字，不要改"),
-						"expected": str("预期响应/现象（状态码+关键字段）"),
+						"response": str("该步的真实响应原文（状态码+关键 header+关键 body 片段），逐字取自真实返回，不要编造；响应很长就留能证明问题的关键片段"),
+						"expected": str("该步预期/结论（状态码+关键字段，一句话）"),
 						"proves":   str("这一步证明了什么"),
-					}}, "description": "有序复现步骤（从入口到证实）"},
+					}}, "description": "有序复现步骤（从入口到证实）；每步尽量同时给出真实 request 与 response"},
 					"provenance": str("该漏洞由哪条探索/意图发现、依赖哪些前序结果（攻击链来源）"),
 				},
 			},
