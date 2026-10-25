@@ -1625,7 +1625,8 @@
     "trafficCount": "關聯流量 {{count}} 條",
     "jumpTraffic": "查看流量包",
     "jumpTrafficHint": "在新分頁開啟該請求的真實流量包（便於截圖）",
-    "rawEvidence": "原始證據 / PoC（來源）"
+    "rawEvidence": "原始證據 / PoC（來源）",
+    "reproCommand": "復現命令（agent 執行）"
   },
   "traffic": {
     "title": "流量",

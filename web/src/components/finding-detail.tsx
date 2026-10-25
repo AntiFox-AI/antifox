@@ -448,6 +448,7 @@ function ReproductionSection({
                       </Button>
                     )}
                   </div>
+                  {/* 关键请求/响应（agent 记录的标准 HTTP 报文关键部分）；完整流量包靠步骤头部「查看流量包」跳转。 */}
                   {st.request?.trim() && (
                     <pre className="mt-1.5 max-w-full min-w-0 overflow-x-auto rounded bg-muted px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap">
                       {st.request}

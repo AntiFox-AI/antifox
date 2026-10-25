@@ -1625,7 +1625,8 @@
     "trafficCount": "{{count}} linked",
     "jumpTraffic": "View packet",
     "jumpTrafficHint": "Open the exact recorded packet in a new tab (to screenshot)",
-    "rawEvidence": "Raw evidence / PoC (source)"
+    "rawEvidence": "Raw evidence / PoC (source)",
+    "reproCommand": "Command (as run by the agent)"
   },
   "traffic": {
     "title": "Traffic",

@@ -134,13 +134,30 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 		// just carry no exchange_id and the UI shows no jump.
 		var rp report.Reproduction
 		if json.Unmarshal(f.Reproduction, &rp) == nil {
-			if tr := s.m.Traffic(); tr != nil {
-				for i := range rp.Steps {
-					if rp.Steps[i].ExchangeID != "" || strings.TrimSpace(rp.Steps[i].Request) == "" {
-						continue
+			// 若落库时已解析(任一步带 exchange_id)则直接读存储;否则 view-time 用任务时间窗口兜底
+			// 解析(与 report_finding 落库时的 resolver 同逻辑),让存量 finding 也补上跳转链接。
+			hasResolved := false
+			for _, st := range rp.Steps {
+				if st.ExchangeID != "" {
+					hasResolved = true
+					break
+				}
+			}
+			if !hasResolved {
+				if tr := s.m.Traffic(); tr != nil && f.TaskID != nil {
+					since := f.CreatedAt
+					if tk, err := s.m.pg.GetTask(*f.TaskID); err == nil && tk.FirstRunAt != nil {
+						since = *tk.FirstRunAt
 					}
-					if exid, ok := tr.ResolveStepExchange(rp.Steps[i].Request); ok {
-						rp.Steps[i].ExchangeID = exid
+					refs := make([]traffic.StepRef, len(rp.Steps))
+					for i, st := range rp.Steps {
+						refs[i] = traffic.StepRef{Request: st.Request, Response: st.Response}
+					}
+					ids := tr.ResolveSteps(since.Unix(), time.Now().Unix(), refs)
+					for i, id := range ids {
+						if id != "" {
+							rp.Steps[i].ExchangeID = id
+						}
 					}
 				}
 			}
@@ -150,6 +167,48 @@ func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{"finding": findingFromDB(f), "enrichment": dtoFromEnrichment(enr), "reproduction": repro})
+}
+
+// resolveFindingTraffic resolves a finding's reproduction steps to real recorded
+// traffic exchange ids AT RECORD TIME. It is the host-side callback wired into the
+// worker's report_finding tool: when an agent records a finding, each step's verbatim
+// request is matched against the traffic captured in THIS task's time window (start
+// → now), in step order — so every step gets a jump-to-traffic link up front, with
+// the full time/order context that view-time guessing lacks. Returns the reproduction
+// with steps[].exchange_id filled where matched; unchanged on any failure.
+func (s *Server) resolveFindingTraffic(taskID int64, repro json.RawMessage) json.RawMessage {
+	tr := s.m.Traffic()
+	if tr == nil || taskID <= 0 {
+		return repro
+	}
+	var rp report.Reproduction
+	if json.Unmarshal(repro, &rp) != nil || len(rp.Steps) == 0 {
+		return repro
+	}
+	// Task traffic window: [first_run_at|created_at, now]. The window plus step order
+	// disambiguates repeated identical requests (e.g. many identical requests to one endpoint).
+	since := time.Now().Add(-24 * time.Hour) // fallback if the task row is missing
+	if tk, err := s.m.pg.GetTask(taskID); err == nil {
+		if tk.FirstRunAt != nil {
+			since = *tk.FirstRunAt
+		} else {
+			since = tk.CreatedAt
+		}
+	}
+	refs := make([]traffic.StepRef, len(rp.Steps))
+	for i, st := range rp.Steps {
+		refs[i] = traffic.StepRef{Request: st.Request, Response: st.Response}
+	}
+	ids := tr.ResolveSteps(since.Unix(), time.Now().Unix(), refs)
+	for i, id := range ids {
+		if id != "" {
+			rp.Steps[i].ExchangeID = id
+		}
+	}
+	if out, err := json.Marshal(rp); err == nil {
+		return out
+	}
+	return repro
 }
 
 // POST /api/findings/{id}/enrich — run AI enrichment, persist, return it.

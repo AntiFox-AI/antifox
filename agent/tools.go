@@ -77,6 +77,11 @@ type ToolSet struct {
 	// kb, if set, enables search_knowledge / list_knowledge_categories over the
 	// two-layer knowledge base (global + this task). nil = tools report "not enabled".
 	kb *knowledge.Service
+	// resolveTraffic, if set, resolves a finding's reproduction steps to real recorded
+	// traffic exchange ids AT RECORD TIME (so the finding's steps carry jump-to-traffic
+	// links without view-time guessing). Input = the raw reproduction JSON; returns the
+	// same shape with each step's exchange_id filled where it matched. nil = skip.
+	resolveTraffic func(taskID int64, repro json.RawMessage) json.RawMessage
 }
 
 // SetNotify wires the planner-wake callback (see ToolSet.notify). Set by callers
@@ -125,6 +130,12 @@ func NewToolSet(ts *db.ExplorationStore, worker string) *ToolSet {
 // SetTaskID sets the PG task id on this ToolSet so that report_finding can
 // dual-write to the standalone findings table (which survives task deletion).
 func (t *ToolSet) SetTaskID(id int64) { t.taskID = id }
+
+// SetTrafficResolver wires the record-time traffic linkage callback (host-provided;
+// nil = no linkage — reproduction steps are stored verbatim without exchange ids).
+func (t *ToolSet) SetTrafficResolver(fn func(taskID int64, repro json.RawMessage) json.RawMessage) {
+	t.resolveTraffic = fn
+}
 
 // Cross-task reuse: exported accessors returning the per-task tool logic bound to
 // THIS ToolSet's store. Host-side orchestration tools build a ToolSet for an
@@ -593,16 +604,16 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			"evidence":  str("证据/PoC 文本"),
 			"reproduction": map[string]any{
 				"type":        "object",
-				"description": "【强烈建议填】结构化复现过程——供人工从零复现与交付报告用。所有 request 逐字取自你【本次真实执行过】的请求/响应，绝不改写或编造；你刚打完最清楚每一步。",
+				"description": "【强烈建议填】结构化复现过程——供人工从零复现与交付报告用。每步 request 写成【标准 HTTP 请求报文】(不是 curl/命令)、response 写【状态行+关键 body】(不用...省略关键内容)，全部逐字取自你本次真实执行过的请求/响应，绝不改写或编造；你刚打完最清楚每一步。",
 				"properties": map[string]any{
 					"entry_point":   str("触发漏洞的关键接口（方法+URL），如 POST /user/validate/otp/forgetPasswordVerify"),
 					"prerequisites": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "复现前置：需要的账号/角色/会话/前序步骤。若需测试账号，写清【如何注册】(接口+关键请求要点)——从零可复现。"},
 					"steps": map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{
-						"request":  str("该步的真实请求原文（方法+URL+关键 header+body），逐字，不要改"),
-						"response": str("该步的真实响应原文（状态码+关键 header+关键 body 片段），逐字取自真实返回，不要编造；响应很长就留能证明问题的关键片段"),
+						"request":  str("该步的真实请求，写成【标准 HTTP 请求报文】：请求行(METHOD /path?query HTTP/1.1) + 关键 header(Host/Content-Type/Cookie 等) + 空行 + body，逐字取自你实际发出的请求。【不要写成 curl/python/shell 命令】——即使你用 curl 执行，也还原成等价 HTTP 报文。仅当该步确实不走 HTTP(如直连数据库、本地生成 token)时，才照实写该工具调用并在开头注明「非HTTP：」。"),
+						"response": str("该步的真实响应，写成【HTTP 响应】：状态行(HTTP/1.1 200 OK) + 关键 header + 关键 body 片段，逐字取自真实返回。【不要用 ... 省略掉能证明问题的关键内容】；响应长就只留能定位本条流量、能证明漏洞的关键片段(回显/token/报错等)。"),
 						"expected": str("该步预期/结论（状态码+关键字段，一句话）"),
 						"proves":   str("这一步证明了什么"),
-					}}, "description": "有序复现步骤（从入口到证实）；每步尽量同时给出真实 request 与 response"},
+					}}, "description": "有序复现步骤（从入口到证实）；每步写成【标准 HTTP 请求报文 + 关键响应】(不是 curl/命令、响应不用...省略)，这样能自动关联到录制的真实流量包、支持一键跳转与截图"},
 					"provenance": str("该漏洞由哪条探索/意图发现、依赖哪些前序结果（攻击链来源）"),
 				},
 			},
@@ -617,8 +628,16 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			payload := map[string]any{"vulnclass": a.VulnClass, "severity": a.Severity, "summary": a.Summary,
 				"evidence": map[string]any{"by": t.worker, "poc": a.Evidence}}
-			if len(a.Reproduction) > 2 { // "{}" is 2 bytes; only carry a real recipe
-				payload["reproduction"] = a.Reproduction
+			repro := a.Reproduction
+			if len(repro) > 2 { // "{}" is 2 bytes; only carry a real recipe
+				// Resolve steps → real traffic exchange ids at record time (host callback),
+				// so the stored finding's steps carry jump-to-traffic links up front.
+				if t.resolveTraffic != nil && t.taskID > 0 {
+					if r := t.resolveTraffic(t.taskID, repro); len(r) > 2 {
+						repro = r
+					}
+				}
+				payload["reproduction"] = repro
 			}
 			var anchors []int64
 			for _, raw := range a.AssetIDs {
@@ -637,8 +656,8 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 					_ = t.ts.Link(intent, db.RelYields, id) // chain: intent -> finding
 				}
 				_, _ = t.ts.AddStandaloneFinding(t.taskID, id, a.VulnClass, a.Severity, a.Summary, a.Evidence, t.worker, anchors)
-				if len(a.Reproduction) > 2 { // 就地记录的结构化复现过程(agent 测完即填,请求逐字真实)
-					_ = t.ts.SetFindingReproduction(id, a.Reproduction)
+				if len(repro) > 2 { // 就地记录的结构化复现过程(agent 测完即填,请求逐字真实)
+					_ = t.ts.SetFindingReproduction(id, repro)
 				}
 			} else {
 				// conversation context: no exploration store available, cannot record finding

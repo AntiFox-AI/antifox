@@ -55,6 +55,9 @@ type Worker struct {
 	// extraTools are host-provided tools (e.g. traffic query, oast) appended to
 	// the worker's graph write-back tools.
 	extraTools []actool.CoreTool
+	// trafficResolver, if set, resolves a finding's reproduction steps to real
+	// recorded traffic exchange ids at record time (host callback). nil = no linkage.
+	trafficResolver func(taskID int64, repro json.RawMessage) json.RawMessage
 }
 
 // SetRunTimeout configures the per-intent wall-clock budget for the main
@@ -89,6 +92,11 @@ func (w *Worker) SetProxy(addr, caCert string) { w.proxyAddr, w.proxyCACert = ad
 
 // SetWebSearch selects the web_search backend for this worker (off by default).
 func (w *Worker) SetWebSearch(o WebSearchOpts) { w.webSearch = o }
+
+// SetTrafficResolver wires the record-time traffic linkage callback (host-provided).
+func (w *Worker) SetTrafficResolver(fn func(taskID int64, repro json.RawMessage) json.RawMessage) {
+	w.trafficResolver = fn
+}
 
 // proxyEnv builds the Bash-subprocess env that routes child-command HTTP through
 // the recording proxy and makes the common toolchain trust its MITM CA — so tools
@@ -201,6 +209,7 @@ func renderWorkerGraphOverview(data map[string]any) string {
 func (w *Worker) Execute(ctx context.Context, name string, taskID int64, as *db.AssetStore, ts *db.ExplorationStore, intent *db.Node, hooks harness.HookRunner, emit func(db.Activity), enr EnrichTrigger) (harness.TerminalReason, WriteCounts, error) {
 	tsx := NewToolSet(ts, name)
 	tsx.SetTaskID(taskID)
+	tsx.SetTrafficResolver(w.trafficResolver)
 	if as != nil {
 		tsx.SetAssetStore(as, as.Companies())
 	}

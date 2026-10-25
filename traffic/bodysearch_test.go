@@ -103,20 +103,107 @@ func TestResolveStepExchange(t *testing.T) {
 	step := "POST /api/users/authenticate?language=zh_HK HTTP/1.1\n" +
 		"Host: h\nContent-Type: application/json\n\n" +
 		`{"username":"qqwwzz124","captchaAnswer":"95284","loginMethod":"E"}`
-	if id, ok := tr.ResolveStepExchange(step); !ok || id != "1-0001" {
+	if id, ok := tr.ResolveStepExchange(step, ""); !ok || id != "1-0001" {
 		t.Fatalf("resolve by body: want 1-0001/true, got %q/%v", id, ok)
 	}
 
 	// Same endpoint, no distinguishing body → ambiguous → abstain (no wrong link).
 	bare := "POST /api/users/authenticate HTTP/1.1\nHost: h\n\n"
-	if id, ok := tr.ResolveStepExchange(bare); ok {
+	if id, ok := tr.ResolveStepExchange(bare, ""); ok {
 		t.Fatalf("ambiguous (no body) should abstain, got %q", id)
 	}
 
 	// Unique endpoint resolves even without a body.
 	insertExchange(t, tr, "1-0009", "GET", "https://h/admin/config.json", ``, `{"secret":"x"}`)
-	if id, ok := tr.ResolveStepExchange("GET /admin/config.json HTTP/1.1\nHost: h\n\n"); !ok || id != "1-0009" {
+	if id, ok := tr.ResolveStepExchange("GET /admin/config.json HTTP/1.1\nHost: h\n\n", ""); !ok || id != "1-0009" {
 		t.Fatalf("unique endpoint: want 1-0009/true, got %q/%v", id, ok)
+	}
+}
+
+func TestResolveStepExchangeFromCurl(t *testing.T) {
+	tr := newTestTraffic(t)
+	// Two uploads to the SAME endpoint, differing only by the uploaded filename in the
+	// multipart body — the ambiguity real fuzzing creates (many POSTs to one upload URL).
+	insertExchange(t, tr, "2-0001", "POST", "http://h/upload.php",
+		`Content-Disposition: form-data; name="avatar"; filename="probe_alpha.bin"\n\nAAA`, `{"ok":true,"path":"/uploads/probe_alpha.bin"}`)
+	insertExchange(t, tr, "2-0002", "POST", "http://h/upload.php",
+		`Content-Disposition: form-data; name="avatar"; filename="probe_beta.bin"\n\nBBB`, `{"ok":true,"path":"/uploads/probe_beta.bin"}`)
+	insertExchange(t, tr, "2-0003", "GET", "http://h/uploads/probe_alpha.bin", ``, `AAA`)
+
+	// Step recorded as the SHELL COMMAND the agent ran resolves to the exact upload via
+	// the filename discriminator — not the other same-endpoint upload.
+	cmd1 := `printf 'AAA' > f.bin; curl -s -F "avatar=@f.bin;filename=probe_alpha.bin;type=image/png" http://h/upload.php`
+	if id, ok := tr.ResolveStepExchange(cmd1, ""); !ok || id != "2-0001" {
+		t.Fatalf("curl upload resolve: want 2-0001/true, got %q/%v", id, ok)
+	}
+	// A curl GET command resolves by method+path (unique).
+	if id, ok := tr.ResolveStepExchange(`curl -s "http://h/uploads/probe_alpha.bin"`, ""); !ok || id != "2-0003" {
+		t.Fatalf("curl GET resolve: want 2-0003/true, got %q/%v", id, ok)
+	}
+	// A raw HTTP packet still resolves (regression over the format change).
+	raw := "POST /upload.php HTTP/1.1\nHost: h\n\n" + `Content-Disposition: form-data; name="avatar"; filename="probe_beta.bin"\n\nBBB`
+	if id, ok := tr.ResolveStepExchange(raw, ""); !ok || id != "2-0002" {
+		t.Fatalf("raw packet resolve: want 2-0002/true, got %q/%v", id, ok)
+	}
+}
+
+func TestResolveStepByResponse(t *testing.T) {
+	tr := newTestTraffic(t)
+	// Same GET made twice: first 200 with output, then 404 (target cleaned up). The
+	// request alone is ambiguous; the step's verbatim RESPONSE picks the 200.
+	insertExchange(t, tr, "3-0001", "GET", "http://h/status.php?q=1", ``, `OK:ready`)
+	insertExchange(t, tr, "3-0002", "GET", "http://h/status.php?q=1", ``, `Not Found`)
+	cmd := `curl -s "http://h/status.php?q=1"`
+	if id, ok := tr.ResolveStepExchange(cmd, `OK:ready`); !ok || id != "3-0001" {
+		t.Fatalf("response tie-break: want 3-0001/true, got %q/%v", id, ok)
+	}
+	// Ambiguous request + a prose response that matches neither → abstain (no guess).
+	if id, ok := tr.ResolveStepExchange(cmd, "HTTP 200 ... 成功 ..."); ok {
+		t.Fatalf("ambiguous + non-matching response should abstain, got %q", id)
+	}
+}
+
+func TestResolveSteps(t *testing.T) {
+	tr := newTestTraffic(t)
+	// A task's traffic window [100, 200]. Reconstruct the file-upload finding shape:
+	// many identical GET /upload.php (the form page), then the distinct POST upload,
+	// then the GET of the uploaded file — the exact scenario where view-time content matching fails
+	// (identical GETs) but time+order succeeds.
+	ins := func(id string, ts int64, method, url, reqB, respB string) {
+		t.Helper()
+		if _, err := tr.db.Exec(`INSERT INTO exchanges(id,ts,host,method,url_template,url,status,content_type,req_len,resp_len,path)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+			id, ts, "h", method, "/t", url, 200, "text/html", len(reqB), len(respB), id); err != nil {
+			t.Fatal(err)
+		}
+		tr.indexBody(id, reqB, respB)
+	}
+	// step1 candidate pool: three identical "GET /upload.php" (form page), ts 110/120/130.
+	ins("g1", 110, "GET", "http://h/upload.php", "", "<form action=/upload.php enctype=multipart/form-data>")
+	ins("g2", 120, "GET", "http://h/upload.php", "", "<form action=/upload.php enctype=multipart/form-data>")
+	ins("g3", 130, "GET", "http://h/upload.php", "", "<form action=/upload.php enctype=multipart/form-data>")
+	// step2: the distinct POST upload (filename discriminator), ts 140.
+	ins("p1", 140, "POST", "http://h/upload.php", "Content-Disposition: form-data; name=\"avatar\"; filename=\"avatar.png\"", "<div>头像上传成功</div>")
+	// step3: exec GET, ts 150.
+	ins("e1", 150, "GET", "http://h/uploads/avatar.png", "", "OK")
+
+	steps := []StepRef{
+		{Request: "GET /upload.php HTTP/1.1\nHost: h\n\n", Response: "HTTP/1.1 200 OK\n\n<form action=/upload.php enctype=multipart/form-data>"},
+		{Request: "POST /upload.php HTTP/1.1\nContent-Type: multipart/form-data; boundary=----B\n\n------B\nContent-Disposition: form-data; name=\"avatar\"; filename=\"avatar.png\"\n\nAAA\n------B--\n", Response: "HTTP/1.1 200 OK\n\n<div>头像上传成功</div>"},
+		{Request: "GET /uploads/avatar.png HTTP/1.1\nHost: h\n\n", Response: "HTTP/1.1 200 OK\n\nOK"},
+	}
+	ids := tr.ResolveSteps(100, 200, steps)
+	// step1 → earliest GET (g1); step2 → the filename-matching POST (p1); step3 → exec (e1).
+	want := []string{"g1", "p1", "e1"}
+	for i, w := range want {
+		if ids[i] != w {
+			t.Errorf("step%d: want %s, got %q", i+1, w, ids[i])
+		}
+	}
+	// A step whose endpoint isn't in the window resolves to "".
+	ids2 := tr.ResolveSteps(100, 200, []StepRef{{Request: "GET /nope HTTP/1.1\n\n", Response: ""}})
+	if ids2[0] != "" {
+		t.Errorf("out-of-window endpoint should resolve empty, got %q", ids2[0])
 	}
 }
 

@@ -381,6 +381,7 @@ func (s *Server) buildPlannerWorker(prov llm.Provider, cfg agent.Config) (*agent
 	wk := agent.NewWorker(wkProv, wkCfg.Model, s.m.dir, tx, wkCfg.CompactionWindow(), s.agentMaxTurns("worker"))
 	wk.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
 	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
+	wk.SetTrafficResolver(s.resolveFindingTraffic) // record-time: resolve finding steps → traffic exchange ids
 	wk.SetMemory(memory.NewStore(filepath.Join(s.m.dir, "memory")))
 	wk.SetWebSearch(s.webSearchFor("worker"))
 	pl := agent.NewPlanner(plProv, plCfg.Model, s.m.dir, tx, plCfg.CompactionWindow(), s.agentMaxTurns("planner"))
