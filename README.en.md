@@ -160,6 +160,16 @@ flowchart TB
 - Human-grade trilingual reports: AI narrative + python-docx delivery-grade .docx
 - MITM traffic recording, rule-based HITL interception, MCP / Skill extension system, pgvector knowledge base
 
+## Follow Us
+
+For hands-on write-ups, feature deep-dives, and release updates, follow our WeChat Official Account:
+
+<div align="center">
+<img src="screenshots/wechat-qr.jpg" alt="AntiFox WeChat Official Account" width="200" />
+<br/>
+<sub>Scan on WeChat · <b>AntiFox</b></sub>
+</div>
+
 ## Credits
 
 - ARTEX (by [@Autumn-27](https://github.com/Autumn-27)) — the technical foundation of this project.

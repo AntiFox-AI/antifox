@@ -160,6 +160,16 @@ flowchart TB
 - 人工级三语报告：AI 叙述 + python-docx 交付级 .docx
 - MITM 流量录制、规则化 HITL 拦截、MCP / Skill 扩展体系、pgvector 知识库
 
+## 关注公众号
+
+更多 AntiFox 的实战复盘、功能解析与版本更新，欢迎关注我们的微信公众号：
+
+<div align="center">
+<img src="screenshots/wechat-qr.jpg" alt="AntiFox 公众号" width="200" />
+<br/>
+<sub>微信扫码关注 · <b>AntiFox</b></sub>
+</div>
+
 ## 致谢
 
 - ARTEX（作者 [@Autumn-27](https://github.com/Autumn-27)）—— 本项目的技术基座。
