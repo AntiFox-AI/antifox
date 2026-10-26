@@ -1,12 +1,19 @@
 <div align="center">
 
-# AntiFox
+# 🦊 AntiFox
 
 **AI 自主渗透测试平台**
 
+从侦察到报告交付，多智能体自主完成 · 全程可视化 · 可介入 · 可交付
+
 中文 | [English](README.en.md)
 
-<img src="screenshots/login.png" alt="AntiFox" width="880" />
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/AntiFox-AI/antifox?color=success)](https://github.com/AntiFox-AI/antifox/releases/latest)
+[![Docker](https://img.shields.io/badge/GHCR-ghcr.io%2Fantifox--ai%2Fantifox-2496ED?logo=docker&logoColor=white)](https://github.com/AntiFox-AI/antifox/pkgs/container/antifox)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](go.mod)
+
+<img src="screenshots/login.png" alt="AntiFox" width="860" />
 
 </div>
 
@@ -14,7 +21,41 @@
 
 ## 简介
 
-AntiFox 是一套 AI 自主渗透测试平台：给定授权目标，由规划器 / 工作者 / 主控多智能体围绕**双图架构**（全局资产图 + 每任务探索图）自主完成 侦察 → 攻击面发现 → 利用验证 → 漏洞记录 → 报告交付，全程可视化、可介入、可交付。
+AntiFox 是一套 AI 自主渗透测试平台：给定授权目标，由规划器 / 工作者 / 主控多智能体围绕**双图架构**（全局资产图 + 每任务探索图）自主完成 侦察 → 攻击面发现 → 利用验证 → 漏洞记录 → **报告交付**，全程可视化、可介入、可交付。
+
+与多数"擅长发现、止于发现"的自动化渗透工具不同，AntiFox 把重心放在**交付**——让 AI 挖到的漏洞，变成工程师看得懂、能复现、带证据、可直接交付客户的报告。
+
+## ✨ v2.0 新特性：证据驱动的交付
+
+v2.0 聚焦一件事——**把"挖得到"做成"交得出"**。agent 在挖洞的同时就把复现过程与证据固定下来，工程师的工作也随之从"从零整理报告"转变为"验证确认"。
+
+<div align="center">
+<img src="screenshots/demo.gif" alt="AntiFox 演示" width="880" />
+</div>
+
+**① 复现过程就地落库。** agent 执行利用的同时，将每一步的请求、响应、预期结果与验证结论结构化记录入库，而非事后重构，从根本上杜绝复现步骤"拼不全、靠编造"。
+
+**② 发现页按利用链分步呈现。** 漏洞不再是"一条命令加一句结论"，而是从入口点、前置条件到逐步利用的完整链条，每一步以自然语言说明配一个真实请求，工程师打开即可理解漏洞的来源与利用路径。
+
+<div align="center">
+<img src="screenshots/finding-steps.png" alt="利用链分步呈现" width="860" />
+</div>
+
+**③ 每一步自动关联真实流量包。** agent 作业期间发出的全部请求经 MITM 录制完整落库；在记录漏洞的同时，系统按时间窗口与步骤顺序，将每一步精确关联到其对应的真实数据包。点击即可查看原始请求与响应报文，带语法高亮、正文检索与命中计数，无需再回到代理工具重新构造、重新复测。
+
+<div align="center">
+<img src="screenshots/traffic-packet.png" alt="每步关联真实流量包" width="860" />
+</div>
+
+**④ 证据即报文。** 对敏感信息泄露这类漏洞，流量报文本身就是证据，不必再事后截图拼凑。
+
+<div align="center">
+<img src="screenshots/env-leak.png" alt="流量报文即证据" width="860" />
+</div>
+
+**⑤ 人工级三语报告。** AI 叙述 + python-docx 排版成交付级 `.docx`（封面 / 目录 / 页码 / 每漏洞属性表与结构化复现），支持简体 / 繁体 / 英文整份报告。
+
+> 以上界面数据均为本地靶场的合成演示数据。
 
 ## 快速开始
 
@@ -55,21 +96,17 @@ CGO_ENABLED=0 go build -tags embedui -o antifox ./cmd/antifox
 
 完整步骤（含 skill 内嵌、开发热更新）见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## 截图
+## 更多界面
 
-| 仪表盘 | 发现 |
+| 仪表盘 | 任务 |
 | :---: | :---: |
-| ![仪表盘](screenshots/dashboard.png) | ![发现](screenshots/findings.png) |
-
-| 任务列表 |
-| :---: |
-| ![任务](screenshots/tasks.png) |
-
-> 界面数据均为合成演示数据。
+| ![仪表盘](screenshots/dashboard.png) | ![任务](screenshots/tasks.png) |
 
 ## 源起
 
 AntiFox 自开源项目 ARTEX（作者 [@Autumn-27](https://github.com/Autumn-27)）的 **v0.1.1 起二次开发**，此后持续跟进上游演进，期间与上游相互交流借鉴。在此坦诚致谢原作者的奠基性工作。
+
+需要说明的是，"自动发现"与"报告交付"本是两类目标：ARTEX 把发现做得很强，而交付更贴近具体项目、因客户而异。AntiFox 正是在其优秀底座之上，把工程重心补在了"交付"这一环。
 
 ## 相对 ARTEX 的改进
 
@@ -77,11 +114,12 @@ AntiFox 自开源项目 ARTEX（作者 [@Autumn-27](https://github.com/Autumn-27
 
 | 方面 | 说明 |
 | --- | --- |
-| 三语国际化 | 全站简体 / 繁体 / 英文 |
-| 多用户权限（RBAC） | 可视化权限矩阵自定义角色、系统角色、资源级范围、登录审计 |
-| 人工级报告 | AI 叙述 + python-docx 排版成交付级 .docx（封面 / 目录 / 页码 / 每漏洞属性表），支持中 / 繁 / 英整份 |
+| **证据驱动的交付** | 复现过程就地落库、发现页按利用链分步、每步自动关联真实流量包（语法高亮 / 正文检索 / 命中计数） |
+| **人工级报告** | AI 叙述 + python-docx 排版成交付级 .docx（封面 / 目录 / 页码 / 每漏洞属性表），支持简 / 繁 / 英整份 |
 | 报告管理 | 组织级设置、命名模版（出具方 / logo / 人员 / CVSS）、按任务生成、勾选收录漏洞子集 |
 | 漏洞管理深化 | AI 富化成结构化数据（CVSS / 影响 / 修复 / 结构化复现）、四级严重度、批量富化、会话漏洞补录 |
+| 三语国际化 | 全站简体 / 繁体 / 英文 |
+| 多用户权限（RBAC） | 可视化权限矩阵自定义角色、系统角色、资源级范围、登录审计 |
 | 知识库检索增强 | 全局 + 任务双层 pgvector RAG，为 Agent 提供领域知识 |
 
 ## 技术架构
@@ -118,7 +156,9 @@ flowchart TB
 
 - 双图架构：全局共享资产图 + 每任务独立探索图，靠锚点互连
 - 多智能体编排：事件驱动引擎，planner 产意图 / N 个 worker 执行 / mainagent 人机接口
-- MITM 流量录制、规则化 HITL 拦截、MCP / Skill 扩展体系
+- 证据驱动交付：复现就地落库、发现页利用链分步、每步关联真实流量包
+- 人工级三语报告：AI 叙述 + python-docx 交付级 .docx
+- MITM 流量录制、规则化 HITL 拦截、MCP / Skill 扩展体系、pgvector 知识库
 
 ## 致谢
 
@@ -144,4 +184,4 @@ flowchart TB
 使用者须自行遵守所在国家 / 地区关于网络安全、数据保护与计算机犯罪的全部法律法规。因使用本项目产生的一切法律责任与后果，均由使用者自行承担。
 
 ### 免责声明
-本项目按“现状（AS IS）”提供，不附带任何明示或默示的担保。作者及贡献者不对使用本工具所导致的任何直接或间接损失、数据丢失、系统损坏或法律纠纷承担责任。下载、安装或使用本项目，即表示你已阅读、理解并同意上述全部条款。
+本项目按"现状（AS IS）"提供，不附带任何明示或默示的担保。作者及贡献者不对使用本工具所导致的任何直接或间接损失、数据丢失、系统损坏或法律纠纷承担责任。下载、安装或使用本项目，即表示你已阅读、理解并同意上述全部条款。

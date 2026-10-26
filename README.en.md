@@ -1,12 +1,19 @@
 <div align="center">
 
-# AntiFox
+# 🦊 AntiFox
 
 **AI-Driven Autonomous Penetration Testing Platform**
 
+From recon to report delivery — multi-agent, autonomous · fully observable · interactive · deliverable
+
 [中文](README.md) | English
 
-<img src="screenshots/login-en.png" alt="AntiFox" width="880" />
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/AntiFox-AI/antifox?color=success)](https://github.com/AntiFox-AI/antifox/releases/latest)
+[![Docker](https://img.shields.io/badge/GHCR-ghcr.io%2Fantifox--ai%2Fantifox-2496ED?logo=docker&logoColor=white)](https://github.com/AntiFox-AI/antifox/pkgs/container/antifox)
+[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go&logoColor=white)](go.mod)
+
+<img src="screenshots/login-en.png" alt="AntiFox" width="860" />
 
 </div>
 
@@ -15,6 +22,40 @@
 ## Overview
 
 AntiFox is an AI-driven autonomous penetration testing platform. Given an authorized target, a planner / worker / main-agent multi-agent system runs the full engagement over a **dual-graph** core (a global asset graph + a per-task exploration graph) — **recon → attack-surface discovery → exploitation → finding capture → report delivery** — fully observable, interactive, and deliverable.
+
+Unlike most automated pentest tools that are "great at discovery, but stop at discovery," AntiFox puts its weight on **delivery** — turning what the AI finds into a report that an engineer can understand, reproduce, back with evidence, and hand straight to the client.
+
+## ✨ What's New in v2.0: Evidence-Driven Delivery
+
+v2.0 is about one thing — **turning "can find it" into "can deliver it."** The agent fixes the reproduction steps and evidence in place while it works, so the engineer's job shifts from "assembling a report from scratch" to "verify and confirm."
+
+<div align="center">
+<img src="screenshots/demo.gif" alt="AntiFox demo" width="880" />
+</div>
+
+**① Reproduction captured in place.** As the agent exploits, each step's request, response, expected outcome, and verification conclusion are recorded as structured data — not reconstructed after the fact — eliminating the old "incomplete or fabricated reproduction" problem.
+
+**② Findings laid out as a kill chain.** A finding is no longer "one command plus a verdict," but a full chain from entry point and preconditions through each exploitation step, each in plain language paired with a real request — so an engineer opening the finding immediately grasps where it came from and how it was chained.
+
+<div align="center">
+<img src="screenshots/finding-steps.png" alt="Kill chain, step by step" width="860" />
+</div>
+
+**③ Every step auto-linked to its real traffic.** All requests the agent makes are captured in full via MITM recording; when a finding is recorded, the system links each step to its corresponding real packet by time window and step order. One click shows the original request/response, with syntax highlighting, body search, and match counts — no need to go back to a proxy tool and reconstruct it.
+
+<div align="center">
+<img src="screenshots/traffic-packet.png" alt="Each step linked to its real packet" width="860" />
+</div>
+
+**④ The packet is the evidence.** For findings like sensitive-information disclosure, the traffic packet itself is the proof — no more stitching together screenshots afterwards.
+
+<div align="center">
+<img src="screenshots/env-leak.png" alt="The packet is the evidence" width="860" />
+</div>
+
+**⑤ Human-grade trilingual reports.** AI narrative + python-docx rendered into a delivery-grade `.docx` (cover / TOC / page numbers / per-vuln tables with structured reproduction), as a full report in Simplified Chinese / Traditional Chinese / English.
+
+> All UI data shown is synthetic demo data from a local test range.
 
 ## Quick Start
 
@@ -55,21 +96,17 @@ CGO_ENABLED=0 go build -tags embedui -o antifox ./cmd/antifox
 
 Full steps (skill embedding, dev hot-reload) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Screenshots
+## More Screens
 
-| Dashboard | Findings |
+| Dashboard | Tasks |
 | :---: | :---: |
-| ![Dashboard](screenshots/dashboard-en.png) | ![Findings](screenshots/findings-en.png) |
-
-| Tasks |
-| :---: |
-| ![Tasks](screenshots/tasks-en.png) |
-
-> All UI data shown is synthetic demo data.
+| ![Dashboard](screenshots/dashboard-en.png) | ![Tasks](screenshots/tasks-en.png) |
 
 ## Lineage
 
 AntiFox is a fork that started from **v0.1.1** of the open-source project ARTEX (by [@Autumn-27](https://github.com/Autumn-27)), tracking upstream ever since, with mutual exchange along the way. Full credit to the original author's foundational work.
+
+To be clear, "autonomous discovery" and "report delivery" are two different goals: ARTEX made discovery strong, while delivery is closer to each specific engagement and varies by client. AntiFox builds on that solid foundation and invests its engineering effort in the "delivery" half.
 
 ## What AntiFox Adds (vs ARTEX)
 
@@ -77,11 +114,12 @@ Building on its solid foundation (exploration-graph engine, MITM traffic recordi
 
 | Area | Details |
 | --- | --- |
-| Trilingual i18n | Full UI in Simplified Chinese / Traditional Chinese / English |
-| Multi-user RBAC | Visual permission-matrix custom roles, system roles, resource-level scope, login audit |
-| Human-grade reports | AI narrative + python-docx into delivery-grade .docx (cover / TOC / page numbers / per-vuln tables), full report in zh / zh-TW / en |
+| **Evidence-driven delivery** | Reproduction captured in place, findings laid out as a kill chain, every step auto-linked to its real packet (syntax highlight / body search / match counts) |
+| **Human-grade reports** | AI narrative + python-docx into delivery-grade .docx (cover / TOC / page numbers / per-vuln tables), full report in zh / zh-TW / en |
 | Report management | Org settings, named templates (issuer / logo / personnel / CVSS), per-task generation, select which findings to include |
 | Deeper vuln management | AI enrichment into structured data (CVSS / impact / fix / structured reproduction), 4 severity levels, batch enrichment, session finding capture |
+| Trilingual i18n | Full UI in Simplified Chinese / Traditional Chinese / English |
+| Multi-user RBAC | Visual permission-matrix custom roles, system roles, resource-level scope, login audit |
 | Knowledge-base RAG | Global + per-task two-tier pgvector retrieval augmentation for agents |
 
 ## Architecture
@@ -118,7 +156,9 @@ flowchart TB
 
 - Dual-graph: global asset graph + per-task exploration graph, linked by anchors
 - Multi-agent orchestration: event-driven engine, planner produces intents / N workers execute / mainagent is the human interface
-- MITM traffic recording, rule-based HITL interception, MCP / Skill extension system
+- Evidence-driven delivery: reproduction captured in place, findings as a kill chain, every step linked to its real packet
+- Human-grade trilingual reports: AI narrative + python-docx delivery-grade .docx
+- MITM traffic recording, rule-based HITL interception, MCP / Skill extension system, pgvector knowledge base
 
 ## Credits
 
