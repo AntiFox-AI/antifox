@@ -369,7 +369,25 @@ func (s *Server) runEnrich(id int64, f *db.DBFinding, locale, company string) {
 	s.enrichMu.Unlock()
 }
 
+// enrichmentHasProse reports whether an enrichment already carries AI-generated
+// narrative (description / risk / remediation). A freshly-triaged row that only
+// has name/target/severity/status set has none — that's what triggers 确认即富化.
+func enrichmentHasProse(e *db.FindingEnrichment) bool {
+	if e == nil {
+		return false
+	}
+	nonEmptyArr := func(raw json.RawMessage) bool {
+		s := strings.TrimSpace(string(raw))
+		return s != "" && s != "[]" && s != "null"
+	}
+	return nonEmptyArr(e.Description) || nonEmptyArr(e.RiskAnalysis) || nonEmptyArr(e.Remediation)
+}
+
 // PUT /api/findings/{id} — patch human-editable fields (name/target/severity/status).
+// 确认即富化（无感）：当状态被置为 confirmed 且该漏洞尚无富化正文时，直接在后台起一次
+// AI 富化（复用 runEnrich / enrichJob 机制），前端用现成的 enrich/status 轮询无感衔接。
+// 这样"人工确认"这一步就自带了报告所需的结构化正文，报告管理只收录已确认漏洞即全部可交付，
+// 导出时不再依赖脆弱的临场大生成。
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
@@ -381,6 +399,7 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		Target   string `json:"target"`
 		Severity string `json:"severity"`
 		Status   string `json:"status"`
+		Locale   string `json:"locale"` // 自动富化用的报告语言（可选，前端传 i18n.language）
 	}
 	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, "请求格式错误")
@@ -392,5 +411,20 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	saved, _ := s.m.pg.GetFindingEnrichment(id)
-	writeJSON(w, 200, dtoFromEnrichment(saved))
+
+	enriching := false
+	if strings.TrimSpace(body.Status) == "confirmed" && !enrichmentHasProse(saved) {
+		if f, err := s.m.pg.GetFindingByNodeID(id); err == nil && f != nil {
+			s.enrichMu.Lock()
+			if j := s.enrichJobs[id]; j == nil || j.Status != "analyzing" {
+				s.enrichJobs[id] = &enrichJob{Status: "analyzing", StartedAt: time.Now()}
+				enriching = true
+			}
+			s.enrichMu.Unlock()
+			if enriching {
+				go s.runEnrich(id, f, strings.TrimSpace(body.Locale), "")
+			}
+		}
+	}
+	writeJSON(w, 200, map[string]any{"enrichment": dtoFromEnrichment(saved), "enriching": enriching})
 }

@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -86,6 +86,9 @@ export default function ReportsPage() {
   const [taskFindings, setTaskFindings] = React.useState<Finding[]>([]);
   const [selFindings, setSelFindings] = React.useState<Set<string>>(new Set());
   const [loadingFindings, setLoadingFindings] = React.useState(false);
+  // 正常交付流程：人工【确认】漏洞后才进报告。默认只列已确认(confirmed)漏洞供勾选，
+  // 并默认全选；给个开关兜底可展开全部（含待处理/误报等）。
+  const [showAllFindings, setShowAllFindings] = React.useState(false);
   const [generating, setGenerating] = React.useState(false);
   const [selTemplate, setSelTemplate] = React.useState("");
 
@@ -188,12 +191,22 @@ export default function ReportsPage() {
     setSelTemplate("");
     setTaskFindings([]);
     setSelFindings(new Set());
+    setShowAllFindings(false);
     api.tasks().then((r) => setTasks(r.tasks)).catch(() => {});
     setDialogOpen(true);
   }
 
-  // Load the selected task's findings (default: all selected) so the user can
-  // pick a subset for the report.
+  const fKey = (f: Finding) => f.node_id ?? f.id;
+  const isConfirmed = (f: Finding) => f.status === "confirmed";
+  // What the picker shows: confirmed-only by default, everything when toggled on.
+  const visibleFindings = React.useMemo(
+    () => (showAllFindings ? taskFindings : taskFindings.filter(isConfirmed)),
+    [taskFindings, showAllFindings],
+  );
+  const confirmedCount = React.useMemo(() => taskFindings.filter(isConfirmed).length, [taskFindings]);
+
+  // Load the selected task's findings; default-select the CONFIRMED ones (the normal
+  // "confirm → report" flow), so an untouched dialog already collects what's deliverable.
   React.useEffect(() => {
     if (!dialogOpen || !selTask) {
       setTaskFindings([]);
@@ -205,7 +218,7 @@ export default function ReportsPage() {
       .findings(selTask)
       .then((fs) => {
         setTaskFindings(fs);
-        setSelFindings(new Set(fs.map((f) => f.node_id ?? f.id)));
+        setSelFindings(new Set(fs.filter(isConfirmed).map(fKey)));
       })
       .catch(() => {
         setTaskFindings([]);
@@ -535,7 +548,7 @@ export default function ReportsPage() {
 
       {/* ── new report by task ── */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("reports.newReport")}</DialogTitle>
             <DialogDescription>{t("reports.newReportHint")}</DialogDescription>
@@ -609,55 +622,82 @@ export default function ReportsPage() {
               <Label>{t("reports.clientName")}</Label>
               <Input value={client} onChange={(e) => setClient(e.target.value)} placeholder={t("reports.clientPlaceholder")} />
             </div>
-            {/* findings selector */}
+            {/* findings selector — confirmed-only by default (正常交付流程) */}
             {selTask && (
               <div className="min-w-0 space-y-1.5">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <Label>{t("reports.selectFindings")}</Label>
-                  {taskFindings.length > 0 && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{t("reports.findingsSelected", { n: selFindings.size, total: taskFindings.length })}</span>
-                      <button
-                        type="button"
-                        className="text-primary hover:underline"
-                        onClick={() => setSelFindings(new Set(taskFindings.map((f) => f.node_id ?? f.id)))}
-                      >
-                        {t("reports.findingsAll")}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-primary hover:underline"
-                        onClick={() => setSelFindings(new Set())}
-                      >
-                        {t("reports.findingsNone")}
-                      </button>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{t("reports.findingsSelected", { n: selFindings.size, total: visibleFindings.length })}</span>
+                    {visibleFindings.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          className="text-primary hover:underline"
+                          onClick={() => setSelFindings(new Set(visibleFindings.map(fKey)))}
+                        >
+                          {t("reports.findingsAll")}
+                        </button>
+                        <button
+                          type="button"
+                          className="text-primary hover:underline"
+                          onClick={() => setSelFindings(new Set())}
+                        >
+                          {t("reports.findingsNone")}
+                        </button>
+                      </>
+                    )}
+                    {/* 兜底开关：仅已确认 ⇄ 全部（含待处理/误报） */}
+                    <button
+                      type="button"
+                      className="text-primary hover:underline"
+                      onClick={() => setShowAllFindings((v) => !v)}
+                    >
+                      {showAllFindings ? t("reports.findingsConfirmedOnly") : t("reports.findingsShowAll")}
+                    </button>
+                  </div>
                 </div>
                 {loadingFindings ? (
                   <div className="text-sm text-muted-foreground py-2">{t("reports.findingsLoading")}</div>
                 ) : taskFindings.length === 0 ? (
                   <div className="text-sm text-muted-foreground py-2">{t("reports.findingsEmpty")}</div>
+                ) : visibleFindings.length === 0 ? (
+                  <div className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
+                    {t("reports.findingsNoConfirmed")}
+                  </div>
                 ) : (
-                  <ScrollArea className="h-40 rounded-md border">
-                    <div className="p-1">
-                      {taskFindings.map((f) => {
-                        const key = f.node_id ?? f.id;
-                        return (
-                          <label
-                            key={key}
-                            className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer"
-                          >
-                            <Checkbox checked={selFindings.has(key)} onCheckedChange={() => toggleFinding(key)} />
-                            <Badge variant="outline" className="shrink-0 uppercase text-[10px]">
-                              {f.severity}
-                            </Badge>
-                            <span className="truncate">{f.enr_name || f.vulnclass || f.summary}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </ScrollArea>
+                  <>
+                    {!showAllFindings && confirmedCount < taskFindings.length && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {t("reports.findingsConfirmedHint", { confirmed: confirmedCount, total: taskFindings.length })}
+                      </p>
+                    )}
+                    <ScrollArea className="h-64 rounded-md border">
+                      <div className="divide-y">
+                        {visibleFindings.map((f) => {
+                          const key = fKey(f);
+                          return (
+                            <label
+                              key={key}
+                              className="flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted/40 cursor-pointer"
+                            >
+                              <Checkbox checked={selFindings.has(key)} onCheckedChange={() => toggleFinding(key)} />
+                              <StatusBadge domain="severity" value={f.severity} dot className="shrink-0" />
+                              <span className="min-w-0 flex-1 truncate font-medium" title={f.enr_name || f.vulnclass || f.summary}>
+                                {f.enr_name || f.vulnclass || f.summary}
+                              </span>
+                              {typeof f.cvss_score === "number" && f.cvss_score > 0 && (
+                                <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                                  CVSS {f.cvss_score.toFixed(1)}
+                                </span>
+                              )}
+                              <StatusBadge domain="findingStatus" value={f.status || "open"} dot className="shrink-0" />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </>
                 )}
               </div>
             )}

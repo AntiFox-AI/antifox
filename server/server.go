@@ -1685,6 +1685,27 @@ func parseTrafficFilter(q url.Values) traffic.TrafficFilter {
 	return f
 }
 
+// taskTrafficWindow returns the [start, end] Unix-second window of a task's activity,
+// used to scope its recorded traffic (which has no task_id). start = first run (or
+// creation if never run); end = completion time, or now if still running/paused — so a
+// finished task never swallows a later task that reused the same target host.
+// (0,0) when the task row is missing → window unbounded (host-only scoping, old behavior).
+func (s *Server) taskTrafficWindow(taskID int64) (int64, int64) {
+	tk, err := s.m.pg.GetTask(taskID)
+	if err != nil || tk == nil {
+		return 0, 0
+	}
+	start := tk.CreatedAt
+	if tk.FirstRunAt != nil {
+		start = *tk.FirstRunAt
+	}
+	end := time.Now()
+	if tk.CompletedAt != nil {
+		end = *tk.CompletedAt
+	}
+	return start.Unix(), end.Unix()
+}
+
 func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
@@ -1698,18 +1719,22 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 	var ex []traffic.ExchangeMeta
 	var matched, count int
 	buckets := map[int]int{} // 状态码分布(2/3/4/5=2xx…)，按全量聚合(非 50 行样本)
-	// task 过滤：流量按 host 存储、无任务字段，故用「该任务的资产主机集」间接圈定。
+	// task 过滤：流量按 host 存储、无任务字段，故用「该任务的资产主机集」+【任务活动时间窗】
+	// 双重圈定。只按 host 圈会把同 host 的其它测试（如首次测试）也带进来；叠加时间窗后，
+	// 同一 host 上不同时间跑的两次测试就能干净分开（与复现步骤↔流量关联用的是同一套窗口）。
 	if taskID, _ := strconv.ParseInt(q.Get("task"), 10, 64); taskID > 0 {
 		hosts, _ := s.m.Assets().HostsForTask(taskID)
+		tmin, tmax := s.taskTrafficWindow(taskID)
+		filter.TsMin, filter.TsMax = tmin, tmax
 		ex, matched, _ = tr.PageHosts(hosts, q.Get("method"), q.Get("q"), filter, page, size)
 		count = matched // task-scoped total (for the stat card)
 		if len(hosts) > 0 {
-			buckets, _ = tr.StatusCounts(hosts)
+			buckets, _ = tr.StatusCounts(hosts, tmin, tmax)
 		}
 	} else {
 		ex, matched, _ = tr.Page(q.Get("host"), q.Get("method"), q.Get("q"), filter, page, size)
 		count, _ = tr.Count() // global total, for the stat card
-		buckets, _ = tr.StatusCounts(nil)
+		buckets, _ = tr.StatusCounts(nil, 0, 0)
 	}
 	dtos := trafficDTOs(ex)
 	// Body keyword → attach a highlighted snippet per row showing where it matched

@@ -388,6 +388,11 @@ type TrafficFilter struct {
 	RespMin   int    // 响应长度下限(字节，0=不限)
 	RespMax   int    // 响应长度上限(字节，0=不限)
 	Body      string // 正文关键词（请求/响应解码后全文，FTS trigram，≥3 字）
+	// 时间窗（Unix 秒，0=不限）。任务筛选用它把"该任务资产主机集"再按【任务活动时间窗】
+	// 收敛——流量无 task_id，仅按 host 圈会把同 host 的其它测试（如首次测试）也带进来；
+	// 叠加时间窗后，同一 host 上不同时间跑的两次测试就能干净分开。
+	TsMin int64
+	TsMax int64
 }
 
 // fts5Quote wraps a user keyword as a literal FTS5 phrase ("…") with embedded
@@ -520,6 +525,14 @@ func (f TrafficFilter) conds() (parts []string, args []any) {
 	if f.RespMax > 0 {
 		parts = append(parts, "resp_len <= ?")
 		args = append(args, f.RespMax)
+	}
+	if f.TsMin > 0 {
+		parts = append(parts, "ts >= ?")
+		args = append(args, f.TsMin)
+	}
+	if f.TsMax > 0 {
+		parts = append(parts, "ts <= ?")
+		args = append(args, f.TsMax)
 	}
 	return
 }
@@ -686,8 +699,10 @@ func (t *Traffic) PageHosts(hosts []string, method, q string, filter TrafficFilt
 // 2xx/3xx/4xx/5xx) over the WHOLE store (not a 50-row page), so the dashboard's
 // status distribution is accurate. hosts empty ⇒ all exchanges (global); non-empty
 // ⇒ restricted to that host set (a task's asset hosts).
-func (t *Traffic) StatusCounts(hosts []string) (map[int]int, error) {
-	where := ""
+// tsMin/tsMax (Unix 秒，0=不限) scope the counts to a task's activity window so the
+// task stat card matches the paged, window-scoped view.
+func (t *Traffic) StatusCounts(hosts []string, tsMin, tsMax int64) (map[int]int, error) {
+	var conds []string
 	var args []any
 	if len(hosts) > 0 {
 		ph := make([]string, len(hosts))
@@ -695,7 +710,19 @@ func (t *Traffic) StatusCounts(hosts []string) (map[int]int, error) {
 			ph[i] = "?"
 			args = append(args, strings.ToLower(strings.TrimSpace(h)))
 		}
-		where = " WHERE lower(host) IN (" + strings.Join(ph, ",") + ")"
+		conds = append(conds, "lower(host) IN ("+strings.Join(ph, ",")+")")
+	}
+	if tsMin > 0 {
+		conds = append(conds, "ts >= ?")
+		args = append(args, tsMin)
+	}
+	if tsMax > 0 {
+		conds = append(conds, "ts <= ?")
+		args = append(args, tsMax)
+	}
+	where := ""
+	if len(conds) > 0 {
+		where = " WHERE " + strings.Join(conds, " AND ")
 	}
 	rows, err := t.db.Query(`SELECT status/100 AS bucket, COUNT(*) FROM exchanges`+where+` GROUP BY bucket`, args...)
 	if err != nil {

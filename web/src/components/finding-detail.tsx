@@ -2,13 +2,20 @@
 
 import * as React from "react";
 
-import { CameraIcon, CheckIcon, ExternalLinkIcon, ImagePlusIcon, Link2Icon, Loader2Icon, PencilIcon, ShieldAlertIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CameraIcon, CheckIcon, ChevronDownIcon, CopyIcon, ExternalLinkIcon, ImagePlusIcon, Link2Icon, Loader2Icon, PencilIcon, ShieldAlertIcon, SparklesIcon, Trash2Icon, XIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { PacketShotModal } from "@/components/packet-shot-modal";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
@@ -112,15 +119,62 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
     setEditing(true);
   }
   function save() {
+    persist(form);
+    setEditing(false);
+  }
+
+  // persist writes the triage fields and, when confirming an un-enriched finding,
+  // seamlessly picks up the auto-started 富化 (确认即富化): the server kicks the job,
+  // we flip on the analyzing spinner and the existing poll streams in the result.
+  function persist(patch: { name: string; target: string; severity: string; status: string }) {
     api
-      .findingUpdate(nodeId, form)
-      .then((e) => {
-        setEnr(e);
-        setEditing(false);
+      .findingUpdate(nodeId, { ...patch, locale: i18n.language })
+      .then((r) => {
+        setEnr(r.enrichment);
         toast.success(t("findings.saved"));
+        if (r.enriching) {
+          setAnalyzing(true);
+          toast.info(t("findings.autoEnriching"));
+        }
         onChanged?.();
       })
       .catch((err) => toast.error((err as Error).message));
+  }
+
+  // setStatus flips just the status from the header pill (no edit mode) — the common
+  // "triage → 已确认" action; confirming auto-enriches via persist().
+  function setStatus(next: string) {
+    if (next === status) return;
+    persist({ name, target, severity, status: next });
+  }
+
+  // copyReport assembles a plain-markdown version of the whole finding (名称/严重度/
+  // 目标/CVSS + 描述/风险/修复 + 结构化复现) to the clipboard — the 复制 button, for
+  // pasting a single vuln into tickets/chat without exporting a full report.
+  function copyReport() {
+    const L: string[] = [`# ${name}`];
+    const meta = [`${t("findings.colSeverity")}：${t(`status.severity.${severity}`)}`];
+    if (target) meta.push(`${t("findings.colTarget")}：${target}`);
+    if (enr && enr.cvss_score > 0) meta.push(`CVSS ${enr.cvss_score.toFixed(1)}${enr.cvss_vector ? ` ${enr.cvss_vector}` : ""}`);
+    L.push(meta.join("　·　"));
+    const desc = enr?.description?.length ? enr.description : finding.summary ? [finding.summary] : [];
+    if (desc.length) L.push(`\n## ${t("findings.descLabel")}`, ...desc);
+    if (enr?.risk_analysis?.length) L.push(`\n## ${t("findings.riskAnalysis")}`, ...enr.risk_analysis.map((r, i) => `${i + 1}. ${r}`));
+    if (enr?.remediation?.length) L.push(`\n## ${t("findings.remediation")}`, ...enr.remediation.map((r, i) => `${i + 1}. ${r}`));
+    if (repro?.entry_point || (repro?.steps?.length ?? 0) > 0) {
+      L.push(`\n## ${t("findings.testProcess")}`);
+      if (repro?.entry_point) L.push(`${t("findings.reproEntry")}：${repro.entry_point}`);
+      (repro?.steps ?? []).forEach((st, i) => {
+        const d = [st.expected, st.proves].filter(Boolean).join(" ｜ ");
+        L.push(`\n${t("findings.reproStep")} ${i + 1}${d ? ` — ${d}` : ""}`);
+        if (st.request?.trim()) L.push(st.request.trim());
+        if (st.response?.trim()) L.push(`${t("findings.reproResponse")}:\n${st.response.trim()}`);
+      });
+    }
+    navigator.clipboard.writeText(L.join("\n")).then(
+      () => toast.success(t("findings.copied")),
+      () => toast.error(t("findings.copyFailed")),
+    );
   }
 
   return (
@@ -169,15 +223,39 @@ export function FindingDetail({ finding, onChanged }: { finding: Finding; onChan
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
-          {/* row 1: name + badges + actions (actions never pushed off-screen) */}
+        <div className="flex flex-col gap-2">
+          {/* row 1: name + severity + interactive status pill + actions */}
           <div className="flex items-center gap-2.5">
-            <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={name}>
+            <span className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight" title={name}>
               {name}
             </span>
             <StatusBadge domain="severity" value={severity} dot />
-            <StatusBadge domain="findingStatus" value={status} dot />
-            <div className="flex shrink-0 gap-2">
+            {/* 状态下拉 pill：直接改状态/确认，无需进编辑；选"已确认"即触发后台自动富化 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center gap-0.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  title={t("findings.statusLabel")}
+                >
+                  <StatusBadge domain="findingStatus" value={status} dot className="cursor-pointer transition hover:brightness-95" />
+                  <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[8.5rem]">
+                <DropdownMenuRadioGroup value={status} onValueChange={setStatus}>
+                  {STATUSES.map((sv) => (
+                    <DropdownMenuRadioItem key={sv} value={sv} className="gap-2">
+                      <StatusBadge domain="findingStatus" value={sv} dot />
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <div className="flex shrink-0 gap-1.5">
+              <Button size="sm" variant="ghost" onClick={copyReport} title={t("findings.copyReport")}>
+                <CopyIcon /> <span className="hidden lg:inline">{t("findings.copyReport")}</span>
+              </Button>
               <Button size="sm" variant="outline" onClick={startEdit}>
                 <PencilIcon /> {t("findings.edit")}
               </Button>
@@ -468,6 +546,11 @@ function ReproductionSection({
                     items={byStep.get(n) ?? []}
                     onZoom={setLightbox}
                     onChanged={load}
+                    suggestedCaption={
+                      (st.proves || st.expected || "").trim()
+                        ? `${t("findings.reproStep")} ${n}：${(st.proves || st.expected || "").trim().split("\n")[0].slice(0, 120)}`
+                        : undefined
+                    }
                   />
                 </div>
               );
@@ -537,12 +620,16 @@ function EvidenceStrip({
   items,
   onZoom,
   onChanged,
+  suggestedCaption,
 }: {
   nodeId: string;
   stepIndex: number;
   items: FindingEvidenceItem[];
   onZoom: (url: string) => void;
   onChanged: () => void;
+  // Step-derived caption (from the agent's 复现 step text); pre-fills empty captions so
+  // 图注 is auto-written yet editable. New uploads already carry a server-derived caption.
+  suggestedCaption?: string;
 }) {
   const { t } = useTranslation();
   const [uploading, setUploading] = React.useState(false);
@@ -618,7 +705,7 @@ function EvidenceStrip({
             <Trash2Icon className="size-3.5" />
           </button>
           <input
-            defaultValue={it.evidence.caption}
+            defaultValue={it.evidence.caption || suggestedCaption || ""}
             placeholder={t("findings.shotCaption")}
             className="w-full border-t bg-transparent px-2 py-1 text-[11px] outline-none placeholder:text-muted-foreground/60 focus:bg-muted/40"
             onBlur={(e) => saveCaption(it, e.target.value.trim())}
@@ -658,8 +745,11 @@ function EvidenceStrip({
 
 function Section({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="min-w-0 space-y-1">
-      <div className="text-muted-foreground text-xs font-medium">{label}</div>
+    <div className="min-w-0 space-y-2">
+      <div className="flex items-center gap-2 border-b border-border/60 pb-1 text-sm font-semibold tracking-tight text-foreground">
+        <span className="h-3.5 w-1 rounded-full bg-primary/70" />
+        {label}
+      </div>
       {children}
     </div>
   );

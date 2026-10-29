@@ -348,8 +348,12 @@ export const api = {
   findingEnrich: (nodeId: string, locale?: string) =>
     post<EnrichJob>(`/findings/${nodeId}/enrich${locale ? `?locale=${encodeURIComponent(locale)}` : ""}`, {}),
   findingEnrichStatus: (nodeId: string) => get<EnrichJob>(`/findings/${nodeId}/enrich/status`),
-  findingUpdate: (nodeId: string, patch: { name?: string; target?: string; severity?: string; status?: string }) =>
-    put<Enrichment>(`/findings/${nodeId}`, patch),
+  // Returns the saved enrichment + `enriching`: true when setting status→confirmed
+  // kicked off an automatic background AI 富化 (确认即富化). Poll findingEnrichStatus then.
+  findingUpdate: (
+    nodeId: string,
+    patch: { name?: string; target?: string; severity?: string; status?: string; locale?: string },
+  ) => put<{ enrichment: Enrichment; enriching: boolean }>(`/findings/${nodeId}`, patch),
   // ---- 漏洞证据截图 ----
   findingEvidenceList: (nodeId: string) =>
     get<{ items: FindingEvidenceItem[] }>(`/findings/${nodeId}/evidence`).then((r) => r.items ?? []),

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"image"
 	_ "image/gif" // 注册 gif 解码器
@@ -14,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"antifox/report"
 )
 
 // 漏洞证据截图上传/展示/管理。文件存 dataDir/report_assets/evidence/<node_id>/（随 report_assets 备份）；
@@ -122,6 +125,10 @@ func (s *Server) uploadFindingEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	caption := strings.TrimSpace(r.FormValue("caption"))
 	stepIndex, _ := strconv.Atoi(r.FormValue("step_index"))
+	if caption == "" {
+		// 图注自动填充：没手填就用 agent 就地记录的该步复现文案派生一句（可编辑、无额外 LLM 调用）。
+		caption = s.deriveEvidenceCaption(nodeID, stepIndex)
+	}
 	ev, err := pg.CreateFindingEvidence(nodeID, name, caption, stepIndex)
 	if err != nil {
 		_ = os.Remove(filepath.Join(dir, name)) // 回滚落盘
@@ -129,6 +136,33 @@ func (s *Server) uploadFindingEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"evidence": ev, "url": evidenceURL(nodeID, name)})
+}
+
+// deriveEvidenceCaption builds a default figure caption for an evidence shot from the
+// agent-written reproduction step it belongs to（步骤N：该步证明了什么）——图注即由 agent
+// 已记录的复现文案自动生成，不额外调 LLM，仍可人工编辑。step 0（概览）或该漏洞无此步时返回 ""。
+func (s *Server) deriveEvidenceCaption(nodeID int64, stepIndex int) string {
+	if stepIndex <= 0 || s.m == nil || s.m.pg == nil {
+		return ""
+	}
+	f, err := s.m.pg.GetFindingByNodeID(nodeID)
+	if err != nil || f == nil || len(f.Reproduction) == 0 {
+		return ""
+	}
+	var rp report.Reproduction
+	if json.Unmarshal(f.Reproduction, &rp) != nil || stepIndex > len(rp.Steps) {
+		return ""
+	}
+	st := rp.Steps[stepIndex-1]
+	text := strings.TrimSpace(st.Proves)
+	if text == "" {
+		text = strings.TrimSpace(st.Expected)
+	}
+	if text == "" {
+		return ""
+	}
+	text = strings.SplitN(text, "\n", 2)[0] // 收敛到一行，适合缩略图下的图注
+	return clipUTF8(fmt.Sprintf("步骤%d：%s", stepIndex, text), 120)
 }
 
 // GET /api/findings/{id}/evidence — 列出某漏洞全部证据（带取图 url）。

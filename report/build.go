@@ -149,26 +149,20 @@ func BuildDoc(ctx context.Context, pg *db.DB, in *GenInput) *reportDoc {
 		Standards:        sk.Standards,
 	}
 
-	// --- concurrent AI: report-level + per-finding narrative ---
+	// --- AI: report-level narrative only (背景/服务结果/整改结论；有兜底，永不空白) ---
+	// 每条漏洞的正文(描述/风险/修复)一律复用【持久富化】：报告只收录已确认(=已富化)漏洞，
+	// 故生成时必有富化可用；无富化的漏洞(非正常路径)留空 Enrichment，assembleVuln 回退到
+	// 原始 summary/PoC。
 	var rl reportLevelOut
 	narr := make([]Enrichment, len(in.Findings))
 	{
 		var wg sync.WaitGroup
-		sem := make(chan struct{}, 4)
 		wg.Add(1)
 		go func() { defer wg.Done(); rl = aiReportLevel(ctx, pg, in, sk) }()
 		for i := range in.Findings {
-			wg.Add(1)
-			go func(i int) {
-				defer wg.Done()
-				if e := in.Findings[i].Enrichment; e != nil { // reuse persisted enrichment, skip AI
-					narr[i] = *e
-					return
-				}
-				sem <- struct{}{}
-				defer func() { <-sem }()
-				narr[i] = aiVulnNarrative(ctx, pg, loc, in.Findings[i], in.CompanyName, sk)
-			}(i)
+			if e := in.Findings[i].Enrichment; e != nil { // 复用持久富化
+				narr[i] = *e
+			}
 		}
 		wg.Wait()
 	}
