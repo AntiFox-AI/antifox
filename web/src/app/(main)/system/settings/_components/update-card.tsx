@@ -142,7 +142,7 @@ export function UpdateCard() {
   const pct = progress && progress.percent >= 0 ? progress.percent : null;
 
   return (
-    <Card className="max-w-2xl">
+    <Card className="max-w-2xl lg:max-w-none">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <DownloadIcon className="size-4" />

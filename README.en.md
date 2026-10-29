@@ -96,6 +96,8 @@ CGO_ENABLED=0 go build -tags embedui -o antifox ./cmd/antifox
 
 Full steps (skill embedding, dev hot-reload) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+> **One-click update:** for a binary/source deploy, launch via `./start.sh` or systemd (see [`deploy/antifox.service`](deploy/antifox.service), set `RestartForceExitStatus=75`) to check for and install new versions from **System Settings** (SHA256 verify / atomic swap / rollback; data unaffected). For Docker, use `docker compose pull`.
+
 ## More Screens
 
 | Dashboard | Tasks |
@@ -121,6 +123,7 @@ Building on its solid foundation (exploration-graph engine, MITM traffic recordi
 | Trilingual i18n | Full UI in Simplified Chinese / Traditional Chinese / English |
 | Multi-user RBAC | Visual permission-matrix custom roles, system roles, resource-level scope, login audit |
 | Knowledge-base RAG | Global + per-task two-tier pgvector retrieval augmentation for agents |
+| One-click update | Check for and install a new version from GitHub Releases (SHA256 verify / atomic swap / auto-rollback) right from System Settings — your data is untouched |
 
 ## Architecture
 

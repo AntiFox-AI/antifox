@@ -96,6 +96,8 @@ CGO_ENABLED=0 go build -tags embedui -o antifox ./cmd/antifox
 
 完整步骤（含 skill 内嵌、开发热更新）见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+> **一键更新**：裸机/源码部署用 `./start.sh` 启动，或用 systemd（见 [`deploy/antifox.service`](deploy/antifox.service)，设 `RestartForceExitStatus=75`），即可在「系统配置」页检查并安装新版本（SHA256 校验 / 原子换装 / 失败回滚，数据不受影响）；Docker 部署用 `docker compose pull`。
+
 ## 更多界面
 
 | 仪表盘 | 任务 |
@@ -121,6 +123,7 @@ AntiFox 自开源项目 ARTEX（作者 [@Autumn-27](https://github.com/Autumn-27
 | 三语国际化 | 全站简体 / 繁体 / 英文 |
 | 多用户权限（RBAC） | 可视化权限矩阵自定义角色、系统角色、资源级范围、登录审计 |
 | 知识库检索增强 | 全局 + 任务双层 pgvector RAG，为 Agent 提供领域知识 |
+| 一键更新 | 系统配置页从 GitHub Release 检查并安装新版本（SHA256 校验 / 原子换装 / 失败自动回滚），升级不影响数据 |
 
 ## 技术架构
 

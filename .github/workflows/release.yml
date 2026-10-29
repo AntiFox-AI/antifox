@@ -70,7 +70,13 @@ jobs:
           mkdir -p "$NAME"
           cp -r skills "$NAME"/
           cp config.example.json "$NAME"/
-          if [ "${{ matrix.goos }}" = "windows" ]; then cp antifox.exe "$NAME"/; else cp antifox "$NAME"/; fi
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            cp antifox.exe "$NAME"/
+          else
+            cp antifox "$NAME"/
+            cp start.sh "$NAME"/                                  # 守护启动脚本（页面「一键更新」所需）
+            mkdir -p "$NAME/deploy" && cp deploy/antifox.service "$NAME/deploy"/  # systemd 模板
+          fi
           zip -r "$NAME.zip" "$NAME"
       - uses: actions/upload-artifact@v4
         with:

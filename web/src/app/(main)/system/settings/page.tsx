@@ -184,9 +184,11 @@ export default function SystemSettingsPage() {
         <p className="text-muted-foreground text-sm">{t("settings.subtitle")}</p>
       </div>
 
+      {/* 2 列自适应：窄屏单列(卡片限宽易读)，≥lg 双列铺满宽度 */}
+      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
       <UpdateCard />
 
-      <Card className="max-w-2xl">
+      <Card className="max-w-2xl lg:max-w-none">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <RadioTowerIcon className="size-4" />
@@ -211,7 +213,7 @@ export default function SystemSettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="max-w-2xl">
+      <Card className="max-w-2xl lg:max-w-none">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <SearchIcon className="size-4" />
@@ -369,7 +371,7 @@ export default function SystemSettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="max-w-2xl">
+      <Card className="max-w-2xl lg:max-w-none">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <RadioTowerIcon className="size-4" />
@@ -398,7 +400,7 @@ export default function SystemSettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="max-w-2xl">
+      <Card className="max-w-2xl lg:max-w-none">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CpuIcon className="size-4" />
@@ -425,6 +427,7 @@ export default function SystemSettingsPage() {
           </div>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }
