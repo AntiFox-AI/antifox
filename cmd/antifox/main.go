@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"antifox/config"
+	"antifox/selfupdate"
 	"antifox/server"
 )
 
@@ -40,7 +41,21 @@ func printBanner(addr string) {
 		version, runtime.GOOS, runtime.GOARCH, runtime.Version(), addr)
 }
 
-func main() {
+// main is a thin wrapper so run()'s defers execute before os.Exit — needed because the
+// one-click update protocol communicates "relaunch me" to the supervisor via an exit code.
+func main() { os.Exit(run()) }
+
+func run() int {
+	// One-click update bootstrap: must run before opening any port or DB. On a staged
+	// upgrade it swaps the binary and returns Restart (we exit 75; the supervisor relaunches
+	// us). Smoke-test child processes short-circuit via ANTIFOX_SELFUPDATE_SMOKE.
+	action, upState := selfupdate.Bootstrap()
+	server.SetBootUpdateState(upState)
+	if action == selfupdate.Restart {
+		return selfupdate.ExitRestart
+	}
+	server.BuildVersion = version // hand the build version to the server (health + update check)
+
 	var (
 		addr    = flag.String("addr", ":8787", "HTTP listen address")
 		dataDir = flag.String("data", filepath.Join(config.BaseDir(), "data"), "data directory for SQLite stores (default: data/ next to the executable)")
@@ -79,7 +94,8 @@ func main() {
 
 	mgr, err := server.NewManager(*dataDir, *proxy)
 	if err != nil {
-		log.Fatalf("open stores: %v", err)
+		log.Printf("open stores: %v", err)
+		return 1
 	}
 	defer mgr.Close()
 
@@ -104,9 +120,21 @@ func main() {
 		}
 	}()
 
-	<-ctx.Done()
-	log.Println("shutting down...")
+	// Confirm a just-applied update once we've stayed up long enough (clears the upgrade
+	// marker so the next boot doesn't count a failed attempt / roll back). No-op otherwise.
+	settleTimer := time.AfterFunc(selfupdate.SettleDelay, selfupdate.Settle)
+	defer settleTimer.Stop()
+
+	code := 0
+	select {
+	case <-ctx.Done():
+		log.Println("shutting down...")
+	case <-server.RestartRequested():
+		log.Println("restarting to apply update (exit 75)...")
+		code = selfupdate.ExitRestart
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
+	return code
 }

@@ -93,9 +93,15 @@ jobs:
           pattern: pkg-*
           merge-multiple: true
           path: dist
+      # 校验和清单：一键自更新(selfupdate 包)下载后按它核对 SHA256，缺它则拒绝安装。
+      # 文件名用 basename（sha256sum 在 dist/ 内生成），与 selfupdate.AssetName 一致。
+      - name: Generate SHA256SUMS
+        run: cd dist && sha256sum *.zip > SHA256SUMS && cat SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
           generate_release_notes: true
 
   # ④ 多架构镜像 → 推 GHCR（复用 binaries 编好的 Linux 二进制，

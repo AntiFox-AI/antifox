@@ -1,0 +1,46 @@
+# AntiFox systemd unit (reference template).
+#
+# Install:
+#   sudo cp deploy/antifox.service /etc/systemd/system/antifox.service
+#   # edit User / paths / ANTIFOX_PG_DSN below to match your host
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now antifox
+#
+# One-click update: the server exits 75 ("restart me") after staging a new binary;
+# RestartForceExitStatus=75 makes systemd relaunch it, and the next boot performs the
+# atomic swap (see the selfupdate package). No start.sh needed — systemd is the supervisor.
+#
+# Data (PostgreSQL + the data dir) is separate from the binary, so updates never touch it.
+
+[Unit]
+Description=AntiFox — AI autonomous penetration testing platform
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=antifox
+Group=antifox
+
+# The binary lives in a WRITABLE dir so one-click update can swap it in place
+# (it writes antifox.new / antifox.old alongside the running binary).
+WorkingDirectory=/opt/antifox
+ExecStart=/opt/antifox/antifox -addr :8787 -data /opt/antifox/data
+
+Environment=ANTIFOX_PG_DSN=postgres://antifox:antifox@127.0.0.1:5432/antifox?sslmode=disable
+# Optional: route GitHub update requests through an egress proxy if GitHub is blocked.
+# Environment=ANTIFOX_UPDATE_PROXY=http://127.0.0.1:7890
+
+# Restart on crashes AND on the exit-75 "restart requested" code (one-click update/rollback).
+# A clean stop (systemctl stop → SIGTERM → exit 0) does NOT restart.
+Restart=on-failure
+RestartForceExitStatus=75
+RestartSec=2
+
+# Give in-flight tasks a moment to wind down on stop/restart.
+TimeoutStopSec=15
+# Let the process write its own binary + sibling files during an update.
+ReadWritePaths=/opt/antifox
+
+[Install]
+WantedBy=multi-user.target

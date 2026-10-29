@@ -17,6 +17,7 @@ import type {
   RBACUser, RBACRole, RBACMe, AuditLog, ReportJob, Enrichment, FindingDetailResp, EnrichJob, FindingEvidenceItem,
   ReportSettings, ReportRecord, ReportTemplate,
   KnowledgeDoc, KnowledgeHit, KnowledgeConfig, KnowledgeLog,
+  UpdateCheck,
 } from "@/lib/types";
 
 function getToken(): string | null {
@@ -241,6 +242,12 @@ export const api = {
   // Run a real "test" search with the given (or saved) config to verify it works.
   testWebSearch: (patch: { web_search_backend?: string; web_search_proxy?: string; brave_search_api_key?: string; tavily_search_api_key?: string }) =>
     post<{ ok: boolean; error?: string; count?: number; backend?: string }>(`/settings/web-search/test`, patch),
+
+  // ---- 一键更新（GitHub Release → 校验 → 暂存 → 守护脚本重启换装）----
+  updateCheck: (force = false) => get<UpdateCheck>(`/update/check${force ? "?force=1" : ""}`),
+  updateApply: () => post<{ ok: boolean; target: string }>(`/update/apply`, {}),
+  updateRollback: () => post<{ ok: boolean }>(`/update/rollback`, {}),
+  updateStreamUrl: () => sseUrl("/update/stream"),
   report: async (task?: string) => {
     if (MOCK) return mockReport(task);
     const token = getToken();

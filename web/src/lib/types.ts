@@ -433,6 +433,37 @@ export interface Settings {
   workers?: number; // 并发工作 agent 数(默认3)；对之后启动的任务生效
 }
 
+// ---- 一键更新 ----
+export interface UpdateCheck {
+  current: string; // 当前运行版本（"dev"=开发构建，禁用一键更新）
+  latest?: string; // GitHub 最新正式版 tag
+  has_update?: boolean;
+  comparable?: boolean; // 当前版本是否可比较（dev/带后缀=false）
+  reason?: string; // 不可比较时的说明
+  mode: "binary" | "docker";
+  os: string;
+  arch: string;
+  asset?: string; // 本平台发布包名
+  asset_available?: boolean; // 该版本是否提供本平台发布包
+  size?: number;
+  notes?: string; // release 说明（changelog）
+  html_url?: string;
+  published_at?: string;
+  has_backup?: boolean; // 是否存在可回滚的上一版本
+  repo?: string;
+  boot_notice?: string; // 上次升级结果（回滚/校验失败等）
+  rolled_back?: boolean;
+  error?: string; // 检查失败原因（如 GitHub 不可达/限流）
+}
+
+export interface UpdateProgress {
+  phase: "idle" | "downloading" | "verifying" | "extracting" | "staged" | "failed";
+  percent: number; // 下载阶段 0-100，其余 -1
+  message: string;
+  version?: string;
+  error?: string;
+}
+
 // ---- LLM config ----
 export interface LLMProfile {
   id: string;

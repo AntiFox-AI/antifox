@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { UpdateCard } from "@/app/(main)/system/settings/_components/update-card";
 import { api } from "@/lib/api";
 import type { Settings } from "@/lib/types";
 
@@ -182,6 +183,8 @@ export default function SystemSettingsPage() {
         <h1 className="text-xl font-semibold tracking-tight">{t("settings.title")}</h1>
         <p className="text-muted-foreground text-sm">{t("settings.subtitle")}</p>
       </div>
+
+      <UpdateCard />
 
       <Card className="max-w-2xl">
         <CardHeader>

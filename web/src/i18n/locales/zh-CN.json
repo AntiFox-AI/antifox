@@ -1,4 +1,31 @@
 {
+  "update": {
+    "title": "版本与更新",
+    "subtitle": "从 GitHub 检查并安装新版本。更新会重启程序，正在运行的任务会被中断；数据不受影响（存于数据库与数据目录）。",
+    "current": "当前版本",
+    "modeBinary": "独立程序",
+    "modeDocker": "Docker 容器",
+    "checkNow": "检查更新",
+    "applyNow": "立即更新",
+    "rollback": "回滚到上一版本",
+    "rollbackConfirm": "确定回滚到上一版本吗？程序会重启。",
+    "rollingBack": "正在回滚，即将重启…",
+    "rollbackFailed": "回滚失败：{{msg}}",
+    "upToDate": "已是最新版本",
+    "foundNew": "发现新版本 {{version}}",
+    "checkFailed": "检查更新失败：{{msg}}",
+    "devBuild": "当前为开发构建，未启用一键更新。",
+    "dockerHint": "检测到 Docker 部署：请拉取新镜像后重建容器（数据在外部数据库/卷，不受影响）。",
+    "releaseNotes": "{{version}} 更新说明",
+    "starting": "准备中…",
+    "working": "更新中…",
+    "restarting": "正在重启以应用新版本…",
+    "restartTimeout": "等待服务重启超时。请检查后端日志，或确认是通过 start.sh / systemd（RestartForceExitStatus=75）启动的。",
+    "updated": "已更新到 {{version}}，正在重新加载页面",
+    "failed": "更新失败：{{msg}}",
+    "startFailed": "启动更新失败：{{msg}}",
+    "supervisorHint": "一键更新依赖守护进程重启程序：裸机请用 start.sh 启动，systemd 需设 RestartForceExitStatus=75；直接运行二进制时退出后不会自动拉起。Docker 用户走 docker compose pull。"
+  },
   "lang": {
     "switch": "语言"
   },

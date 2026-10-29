@@ -582,6 +582,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/logs/history", s.getLogsHistory)
 	mux.HandleFunc("GET /api/logs/stream", s.streamLogs)
 
+	// 一键更新（从 GitHub Release 拉新版、校验、暂存，重启交给守护脚本/systemd 完成换装）。
+	// apply/rollback 是高危操作，RBAC 收归 admin（见 rbac_enforce.go 的管理员专属前缀表）。
+	mux.HandleFunc("GET /api/update/check", s.updateCheck)
+	mux.HandleFunc("POST /api/update/apply", s.updateApply)
+	mux.HandleFunc("POST /api/update/rollback", s.updateRollback)
+	mux.HandleFunc("GET /api/update/stream", s.updateStream)
+
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks", s.createTask)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
@@ -794,7 +801,9 @@ func (s *Server) Handler() http.Handler {
 // --- handlers ---
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"ok": true, "service": "antifox"})
+	// version lets the frontend detect the swap after a one-click update completes
+	// (it polls /api/health until the reported version changes).
+	writeJSON(w, 200, map[string]any{"ok": true, "service": "antifox", "version": BuildVersion})
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {

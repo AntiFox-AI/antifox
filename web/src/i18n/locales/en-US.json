@@ -1,4 +1,31 @@
 {
+  "update": {
+    "title": "Version & Updates",
+    "subtitle": "Check for and install a new version from GitHub. Updating restarts the server and interrupts running tasks; your data is unaffected (it lives in the database and data directory).",
+    "current": "Current version",
+    "modeBinary": "Standalone binary",
+    "modeDocker": "Docker container",
+    "checkNow": "Check for updates",
+    "applyNow": "Update now",
+    "rollback": "Roll back",
+    "rollbackConfirm": "Roll back to the previous version? The server will restart.",
+    "rollingBack": "Rolling back, restarting…",
+    "rollbackFailed": "Rollback failed: {{msg}}",
+    "upToDate": "Up to date",
+    "foundNew": "New version {{version}} available",
+    "checkFailed": "Update check failed: {{msg}}",
+    "devBuild": "This is a development build; one-click update is disabled.",
+    "dockerHint": "Docker deployment detected: pull a new image and recreate the container (your data is in an external database/volume and is unaffected).",
+    "releaseNotes": "{{version}} release notes",
+    "starting": "Preparing…",
+    "working": "Updating…",
+    "restarting": "Restarting to apply the new version…",
+    "restartTimeout": "Timed out waiting for the server to restart. Check the backend logs, or confirm it's launched via start.sh / systemd (RestartForceExitStatus=75).",
+    "updated": "Updated to {{version}}, reloading…",
+    "failed": "Update failed: {{msg}}",
+    "startFailed": "Failed to start update: {{msg}}",
+    "supervisorHint": "One-click update relies on a supervisor to restart the process: on bare metal launch via start.sh, for systemd set RestartForceExitStatus=75; running the binary directly won't relaunch after exit. Docker users use docker compose pull."
+  },
   "lang": {
     "switch": "Language"
   },

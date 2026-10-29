@@ -102,6 +102,10 @@ func permissionForRequest(method, fullPath string) string {
 		return crudPerm(method, "knowledge")
 	case strings.HasPrefix(p, "/settings"):
 		return crudPerm(method, "config")
+	case strings.HasPrefix(p, "/update"):
+		// 一键更新归在系统配置下：检查/进度 = config:read；apply/rollback(POST) = config:write
+		// （config:write 仅给 admin，故高危的下载换装/回滚只有 admin 能触发）。
+		return crudPerm(method, "config")
 	case strings.HasPrefix(p, "/report"):
 		// 覆盖 /report, /reports, /report/generate, /report-settings,
 		// /report-templates, /report-assets（均以 /report 开头）。
