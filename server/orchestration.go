@@ -268,7 +268,7 @@ func (s *Server) toolSpawnTask() actool.CoreTool {
 					pin = pt.LLMProfileID
 				}
 			}
-			t, err := s.m.CreateTask("", a.Description, a.Goal, pin, a.TimeoutSeconds)
+			t, err := s.m.CreateTask("", a.Description, a.Goal, "", pin, a.TimeoutSeconds)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}

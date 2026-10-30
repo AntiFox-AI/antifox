@@ -993,6 +993,8 @@
     "proxyLabel": "代理（可選）",
     "proxyDesc": "僅 LLM 出站請求走此代理，支援 http/https/socks5；留空則使用環境變數（HTTP_PROXY/HTTPS_PROXY）。",
     "proxyShort": "代理 {{proxy}}",
+    "sessionHeaderLabel": "自訂會話標頭（可選）",
+    "sessionHeaderDesc": "填標頭名後，每次請求都帶上這個 HTTP 標頭，標頭值為目前會話的 session id（如 opencode 等按 session 做提示快取/黏性路由的閘道需要）。留空=不傳送。",
     "ratePerSecond": "每秒限速",
     "ratePerMinute": "每分鐘限速",
     "noLimit": "0 = 不限",
@@ -1242,6 +1244,17 @@
       "tavilySaved": "已儲存 Tavily API Key",
       "proxySaved": "已儲存出口代理",
       "proxyCleared": "已清除出口代理（改為直連）"
+    },
+    "globalProxy": {
+      "title": "全域出口代理",
+      "desc": "所有 Agent 的<b>目標流量</b>經此代理出網（隱藏來源 IP / 走跳板），支援 <b>http / https / socks5</b>，可帶 user:pass 認證。開啟流量擷取時它作為記錄代理的上游；留空=直連。",
+      "hint": "滲透測試常用：別用平台真實 IP 直連目標。設定後點「測試可用性」會經代理取一次出口 IP，確認來源 IP 已隱藏。",
+      "test": "測試可用性",
+      "testing": "測試中…",
+      "testOk": "代理可用 · 出口 IP {{ip}} · {{ms}}ms",
+      "testFailed": "代理不可用：{{error}}",
+      "saved": "全域出口代理已儲存並生效",
+      "cleared": "已清除全域出口代理（改為直連）"
     },
     "python": {
       "title": "自訂腳本 · Python 直譯器",
@@ -1568,6 +1581,11 @@
     "timeoutLabel": "任務逾時（分鐘，可選）",
     "timeoutPlaceholder": "留空 = 不限時",
     "timeoutHint": "到點後觸發優雅收尾（各 agent 寫回 + planner 終局判定），任務進入 timeout 終態。",
+    "egressLabel": "出口代理",
+    "egressFollow": "跟隨全域（預設）",
+    "egressProxy": "走全域代理",
+    "egressDirect": "直連（不走代理）",
+    "egressHint": "該任務的目標流量走不走全域出口代理（在「系統配置 → 全域出口代理」設定）。跟隨全域=設了就走；直連=即使設了也不走。順序跑任務即時生效。",
     "emptyNoTasks": "尚無任務，點擊右上角「新增任務」開始。",
     "emptyNoMatch": "沒有符合的任務。",
     "goalProgress": "目標進度",

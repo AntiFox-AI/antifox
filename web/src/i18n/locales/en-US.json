@@ -993,6 +993,8 @@
     "proxyLabel": "Proxy (optional)",
     "proxyDesc": "Only LLM outbound requests use this proxy; supports http/https/socks5. Leave blank to use environment variables (HTTP_PROXY/HTTPS_PROXY).",
     "proxyShort": "Proxy {{proxy}}",
+    "sessionHeaderLabel": "Custom session header (optional)",
+    "sessionHeaderDesc": "Set a header name and every request carries it with the current session id as its value (needed by gateways like opencode that do session-keyed prompt caching / sticky routing). Empty = not sent.",
     "ratePerSecond": "Rate per second",
     "ratePerMinute": "Rate per minute",
     "noLimit": "0 = unlimited",
@@ -1242,6 +1244,17 @@
       "tavilySaved": "Tavily API Key saved",
       "proxySaved": "Egress proxy saved",
       "proxyCleared": "Egress proxy cleared (switched to direct)"
+    },
+    "globalProxy": {
+      "title": "Global Egress Proxy",
+      "desc": "All agents' <b>target traffic</b> goes out through this proxy (hide source IP / use a jump box). Supports <b>http / https / socks5</b> with optional user:pass auth. When traffic capture is on it acts as the recording proxy's upstream; empty = direct.",
+      "hint": "Common in pentests: don't hit targets from the platform's real IP. After saving, click Test to fetch the egress IP through the proxy and confirm the source IP is hidden.",
+      "test": "Test",
+      "testing": "Testing…",
+      "testOk": "Proxy works · egress IP {{ip}} · {{ms}}ms",
+      "testFailed": "Proxy failed: {{error}}",
+      "saved": "Global egress proxy saved and applied",
+      "cleared": "Global egress proxy cleared (switched to direct)"
     },
     "python": {
       "title": "Custom Scripts · Python Interpreter",
@@ -1568,6 +1581,11 @@
     "timeoutLabel": "Task timeout (minutes, optional)",
     "timeoutPlaceholder": "Empty = no limit",
     "timeoutHint": "On timeout a graceful wrap-up is triggered (each agent writes back + planner final verdict), and the task enters the timeout terminal state.",
+    "egressLabel": "Egress proxy",
+    "egressFollow": "Follow global (default)",
+    "egressProxy": "Use global proxy",
+    "egressDirect": "Direct (no proxy)",
+    "egressHint": "Whether this task's target traffic uses the global egress proxy (configured in System Settings → Global Egress Proxy). Follow global = use it if set; Direct = bypass it even if set. Applies immediately for sequential tasks.",
     "emptyNoTasks": "No tasks yet. Click \"New Task\" in the top right to start.",
     "emptyNoMatch": "No matching tasks.",
     "goalProgress": "Goal Progress",

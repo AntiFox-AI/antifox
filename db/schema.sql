@@ -221,6 +221,9 @@ CREATE TRIGGER trg_llm_upd BEFORE UPDATE ON llm_profiles
 -- LLM 轮询(故障转移)：priority=链序权重(DESC，激活配置永远居首)；pool_exclude=不作为兜底目标。
 ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS priority     INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS pool_exclude BOOLEAN NOT NULL DEFAULT false;
+-- 自定义会话头：非空时每次 LLM 请求带上该 HTTP 头(头值=当前会话 session id)，供按 session
+-- 做提示缓存/粘性路由的网关(如 opencode zen)。空=不发送。
+ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS session_header_key TEXT NOT NULL DEFAULT '';
 -- 熔断器状态：进程内为准，落库仅为重启后恢复未过期的冷却窗口。
 CREATE TABLE IF NOT EXISTS llm_profile_health (
     profile_id BIGINT PRIMARY KEY REFERENCES llm_profiles(id) ON DELETE CASCADE,
@@ -256,6 +259,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';  -- 存量库补列
+-- 任务出口代理选择：''=跟随全局(配了全局代理就走) | 'direct'=强制直连 | 'proxy'=走全局代理。
+-- 任务运行/激活时据此设 MITM 上游(隐藏源 IP)。
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS egress TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_tasks_alive  ON tasks(created_at DESC) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)          WHERE deleted_at IS NULL;
 DROP TRIGGER IF EXISTS trg_tasks_upd ON tasks;

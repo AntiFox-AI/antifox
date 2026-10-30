@@ -153,6 +153,7 @@ function TaskDetailInner() {
         goal: v.goal,
         timeout_seconds: v.timeoutSeconds,
         llm_profile_id: v.llmProfileId ?? null,
+        egress: v.egress,
       });
       toast.success(tr("taskDetail.toast.saved"));
       setEditOpen(false);

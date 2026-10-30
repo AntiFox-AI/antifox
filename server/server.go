@@ -289,6 +289,7 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 	cfg.RatePerSecond, cfg.RatePerMinute = p.RatePerSecond, p.RatePerMinute
 	cfg.ContextWindowK = p.ContextWindowK
 	cfg.ReasoningEffort = p.ReasoningEffort
+	cfg.SessionHeaderKey = p.SessionHeaderKey
 	if cfg.APIKey == "" {
 		return cfg, false
 	}
@@ -314,6 +315,7 @@ func (s *Server) saveLLMConfig(cfg agent.Config) {
 		ID: id, Name: "default", Format: format, Model: cfg.Model, BaseURL: cfg.BaseURL, Proxy: cfg.Proxy,
 		APIKey: cfg.APIKey, RatePerSecond: cfg.RatePerSecond, RatePerMinute: cfg.RatePerMinute,
 		ContextWindowK: cfg.ContextWindowK, ReasoningEffort: cfg.ReasoningEffort, IsDefault: true,
+		SessionHeaderKey: cfg.SessionHeaderKey,
 	})
 	if err == nil {
 		_ = s.m.pg.SetActiveProfile(newID)
@@ -446,6 +448,7 @@ func (s *Server) loadProfileConfig(id int64) (agent.Config, bool) {
 	cfg.RatePerSecond, cfg.RatePerMinute = p.RatePerSecond, p.RatePerMinute
 	cfg.ContextWindowK = p.ContextWindowK
 	cfg.ReasoningEffort = p.ReasoningEffort
+	cfg.SessionHeaderKey = p.SessionHeaderKey
 	if cfg.APIKey == "" {
 		return cfg, false
 	}
@@ -633,6 +636,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("POST /api/settings/web-search/test", s.testWebSearch)
+	mux.HandleFunc("POST /api/settings/global-proxy/test", s.testGlobalProxy)
 	mux.HandleFunc("GET /api/report", s.getReport)
 	mux.HandleFunc("POST /api/report/generate", s.generateReport)
 	mux.HandleFunc("GET /api/report/status", s.reportStatus)
@@ -948,6 +952,7 @@ type editTaskReq struct {
 	Goal           string `json:"goal"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	LLMProfileID   *int64 `json:"llm_profile_id,omitempty"`
+	Egress         string `json:"egress"`
 }
 
 // editTask edits a task's fields in place (免删重建). name/timeout/LLM take effect
@@ -974,7 +979,7 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.m.UpdateTask(t.ID, strings.TrimSpace(req.Name), req.Description, req.Goal, req.TimeoutSeconds, req.LLMProfileID); err != nil {
+	if err := s.m.UpdateTask(t.ID, strings.TrimSpace(req.Name), req.Description, req.Goal, strings.TrimSpace(req.Egress), req.TimeoutSeconds, req.LLMProfileID); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -1135,6 +1140,7 @@ type createTaskReq struct {
 	Goal           string `json:"goal"`
 	LLMProfileID   *int64 `json:"llm_profile_id,omitempty"` // 指定运行本任务的 LLM 配置;省略/null=用激活配置
 	TimeoutSeconds int    `json:"timeout_seconds"`          // 任务级超时(秒);0/省略=不限时
+	Egress         string `json:"egress"`                   // 出口代理:''=跟随全局|'direct'=直连|'proxy'=走全局代理
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
@@ -1157,7 +1163,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	if req.TimeoutSeconds < 0 {
 		req.TimeoutSeconds = 0
 	}
-	t, err := s.m.CreateTask(strings.TrimSpace(req.Name), req.Description, req.Goal, req.LLMProfileID, req.TimeoutSeconds)
+	t, err := s.m.CreateTask(strings.TrimSpace(req.Name), req.Description, req.Goal, strings.TrimSpace(req.Egress), req.LLMProfileID, req.TimeoutSeconds)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -1821,6 +1827,7 @@ func (s *Server) settingsPayload() map[string]any {
 		"brave_key_set":       strings.TrimSpace(braveKey) != "",
 		"tavily_key_set":      strings.TrimSpace(tavilyKey) != "",
 		"web_search_proxy":    proxy,                       // 独立出口代理(http/https/socks5)，空=直连
+		"global_proxy":        s.m.GlobalProxy(),           // 全局出口代理：agent 目标流量经它出网(作 MITM 上游)，空=直连
 		"python_interpreter":  strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
 		"workers":             s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
 	}
@@ -1853,6 +1860,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		BraveKey         *string `json:"brave_search_api_key"`
 		TavilyKey        *string `json:"tavily_search_api_key"`
 		WebSearchProxy   *string `json:"web_search_proxy"`   // 独立出口代理(http/https/socks5)；null=不改，""=清空
+		GlobalProxy      *string `json:"global_proxy"`       // 全局出口代理(http/https/socks5)；null=不改，""=清空(直连)
 		PythonInterp     *string `json:"python_interpreter"` // 自定义脚本工具的 python 解释器路径
 		Workers          *int    `json:"workers"`            // 并发工作 agent 数(>0)；对之后启动的任务生效
 	}
@@ -1863,6 +1871,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if req.Workers != nil {
 		if err := s.m.SetWorkers(*req.Workers); err != nil {
 			writeErr(w, 400, err.Error())
+			return
+		}
+	}
+	if req.GlobalProxy != nil {
+		if err := s.m.SetGlobalProxy(*req.GlobalProxy); err != nil {
+			writeErr(w, 400, err.Error()) // 代理 URL/scheme 非法
 			return
 		}
 	}
@@ -1915,6 +1929,48 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 // mirroring testLLM. Backend/proxy come from the request (so the form's unsaved
 // edits are tested); empty API keys fall back to stored values so the user need
 // not retype them. Always 200 with {ok, error?, count?, backend?}.
+// testGlobalProxy verifies a global egress proxy works by fetching the egress IP through
+// it (what a target would see — confirms the source IP is actually hidden). Tests the
+// submitted proxy, or the saved one when blank; never persists.
+func (s *Server) testGlobalProxy(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Proxy string `json:"global_proxy"`
+	}
+	_ = decode(r, &body)
+	raw := strings.TrimSpace(body.Proxy)
+	if raw == "" {
+		raw = s.m.GlobalProxy()
+	}
+	if raw == "" {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "未配置代理"})
+		return
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5") {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "代理地址非法（需 http/https/socks5）"})
+		return
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = http.ProxyURL(u)
+	client := &http.Client{Transport: tr, Timeout: 12 * time.Second}
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org?format=text", nil)
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	ip, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+	writeJSON(w, 200, map[string]any{
+		"ok":         resp.StatusCode == http.StatusOK,
+		"egress_ip":  strings.TrimSpace(string(ip)),
+		"latency_ms": time.Since(start).Milliseconds(),
+	})
+}
+
 func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Backend   string `json:"web_search_backend"`

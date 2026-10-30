@@ -189,7 +189,7 @@ export default function TasksPage() {
       return;
     }
     try {
-      await api.createTask(v.name, v.description, v.goal, v.llmProfileId, v.timeoutSeconds);
+      await api.createTask(v.name, v.description, v.goal, v.llmProfileId, v.timeoutSeconds, v.egress);
       toast.success(t("tasks.toast.created"));
       setForm(BLANK_TASK_FORM);
       setOpen(false);
@@ -218,6 +218,7 @@ export default function TasksPage() {
         goal: v.goal,
         timeout_seconds: v.timeoutSeconds,
         llm_profile_id: v.llmProfileId ?? null,
+        egress: v.egress,
       });
       toast.success(t("tasks.saved"));
       setEditing(null);

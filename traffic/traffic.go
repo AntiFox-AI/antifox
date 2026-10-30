@@ -73,7 +73,12 @@ type Traffic struct {
 	wmu   sync.Mutex
 	seq   atomic.Int64
 	proxy *mproxy.Proxy
-	ftsOK bool // trigram body index available (CREATE succeeded); false ⇒ degrade
+	// upstream is the global egress proxy every captured target request is forwarded
+	// through (hide source IP / jump box). nil = dial targets directly. Hot-swappable
+	// at runtime via SetUpstream, so the global-proxy toggle / per-task choice take
+	// effect without restarting the MITM.
+	upstream atomic.Pointer[url.URL]
+	ftsOK    bool // trigram body index available (CREATE succeeded); false ⇒ degrade
 	// pass is the set of hosts whose MITM interception failed for a proxy/protocol
 	// reason; connections to them are tunneled transparently (fail-open) so the
 	// request still reaches the target — unrecorded — instead of being killed.
@@ -121,12 +126,12 @@ func Open(dir, addr string) (*Traffic, error) {
 		db.Close()
 		return nil, err
 	}
-	// Dial targets DIRECTLY. go-mitmproxy's default upstream uses
-	// http.ProxyFromEnvironment, so an HTTP_PROXY/HTTPS_PROXY in the environment
-	// (a VPN/system proxy) would make it forward target requests through that
-	// external proxy — which can't reach the target → 502. We capture target
-	// traffic directly, never via the host's proxy.
-	p.SetUpstreamProxy(func(*http.Request) (*url.URL, error) { return nil, nil })
+	// Upstream selection. Default (no global proxy set) = dial targets DIRECTLY:
+	// returning nil avoids go-mitmproxy's http.ProxyFromEnvironment default, so a
+	// VPN/system HTTP_PROXY can't hijack target requests (→ 502). When a global
+	// egress proxy IS configured (SetUpstream), every captured request is forwarded
+	// through it instead — hiding the platform's source IP.
+	p.SetUpstreamProxy(func(*http.Request) (*url.URL, error) { return t.upstream.Load(), nil })
 	// Fail-open: MITM every host by default, EXCEPT ones a prior request proved we
 	// can't intercept without breaking (see maybePassthrough). Those are tunneled
 	// transparently so the request still reaches the target instead of being killed.
@@ -150,6 +155,36 @@ func hostOnly(hostport string) string {
 
 // ProxyAddr returns the address workers should set as HTTP(S)_PROXY.
 func (t *Traffic) ProxyAddr() string { return "http://127.0.0.1" + t.addr }
+
+// SetUpstream points every captured target request at a global egress proxy
+// (http/https/socks5), or restores direct dialing when raw is empty. Hot-swappable at
+// runtime (atomic); validates the URL + scheme before applying.
+func (t *Traffic) SetUpstream(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		t.upstream.Store(nil)
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid proxy %q: %w", raw, err)
+	}
+	switch u.Scheme {
+	case "http", "https", "socks5":
+	default:
+		return fmt.Errorf("unsupported proxy scheme %q (use http, https or socks5)", u.Scheme)
+	}
+	t.upstream.Store(u)
+	return nil
+}
+
+// Upstream returns the current global egress proxy URL, or "" when dialing directly.
+func (t *Traffic) Upstream() string {
+	if u := t.upstream.Load(); u != nil {
+		return u.String()
+	}
+	return ""
+}
 
 // CACertPath returns the PEM CA cert clients must trust to verify HTTPS through
 // the MITM proxy (go-mitmproxy writes it here on first start).

@@ -26,6 +26,7 @@ export interface Task {
   tokens?: TokenTotal; // whole-task token consumption
   llm_profile_id?: number; // LLM profile used; absent = default profile
   timeout_seconds?: number; // 任务级超时(秒); 0/absent = 不限时 (edit prefill)
+  egress?: string; // 出口代理: ''=跟随全局 | 'direct'=直连 | 'proxy'=走全局代理
 }
 
 // ---- Asset graph (global, shared across tasks) ----
@@ -429,6 +430,8 @@ export interface Settings {
   tavily_search_api_key?: string;
   // 独立出口代理(http/https/socks5)，用于访问搜索端点；与记录流量的 MITM 代理无关。空=直连。
   web_search_proxy?: string;
+  // 全局出口代理(http/https/socks5)：所有 agent 目标流量经它出网(作 MITM 上游)，隐藏源 IP。空=直连。
+  global_proxy?: string;
   python_interpreter?: string; // 自定义脚本工具的 python 解释器路径(空=运行时检测)
   workers?: number; // 并发工作 agent 数(默认3)；对之后启动的任务生效
 }
@@ -481,6 +484,7 @@ export interface LLMProfile {
   is_default: boolean;
   priority?: number; // LLM 轮询链序权重(越大越靠前;激活配置永远居首)
   pool_exclude?: boolean; // 不作为故障转移兜底目标
+  session_header_key?: string; // 非空=每次请求带此头，头值为当前会话 session id(opencode 等网关用)
 }
 
 // LLM 轮询(故障转移)链的一个成员 + 熔断状态。

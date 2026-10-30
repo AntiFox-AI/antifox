@@ -94,6 +94,7 @@ jobs:
     needs: binaries
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4 # 取 CHANGELOG.md 作 release 说明
       - uses: actions/download-artifact@v4
         with:
           pattern: pkg-*
@@ -103,12 +104,17 @@ jobs:
       # 文件名用 basename（sha256sum 在 dist/ 内生成），与 selfupdate.AssetName 一致。
       - name: Generate SHA256SUMS
         run: cd dist && sha256sum *.zip > SHA256SUMS && cat SHA256SUMS
+      # 言简意赅的「本次更新」：取 CHANGELOG 最上面那个版本段作 release 正文。
+      - name: Extract release notes
+        run: |
+          awk '/^## /{n++} n==1{print}' CHANGELOG.md | tail -n +2 > RELEASE_NOTES.md
+          echo "--- release notes ---"; cat RELEASE_NOTES.md
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.zip
             dist/SHA256SUMS
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
 
   # ④ 多架构镜像 → 推 GHCR（复用 binaries 编好的 Linux 二进制，
   #    镜像里只装工具 + 放二进制；arm64 仅需模拟 apt 层，构建快很多）

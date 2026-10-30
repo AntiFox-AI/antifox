@@ -22,6 +22,8 @@ type Task struct {
 	TimeoutSeconds int        `json:"timeout_seconds"`        // 0=不限时
 	FirstRunAt     *time.Time `json:"first_run_at,omitempty"` // 首次真正开始运行的时刻(非 created_at);nil=尚未运行
 	DeadlineAt     *time.Time `json:"deadline_at,omitempty"`  // = first_run_at + timeout_seconds;nil=不限或未运行
+	// Egress 出口代理选择：''=跟随全局 | 'direct'=强制直连 | 'proxy'=走全局代理。任务运行时据此设 MITM 上游。
+	Egress string `json:"egress,omitempty"`
 }
 
 // IsTerminal reports whether a task status is a terminal (finished) state.
@@ -33,7 +35,7 @@ func IsTerminal(status string) bool {
 // CreateTask creates an exploration + task in one transaction and returns the task.
 // timeoutSeconds is the task-level wall-clock budget (0 = 不限时); deadline_at is
 // stamped later at first real run (see engine), not here.
-func (d *DB) CreateTask(name, description, goal string, llmProfileID *int64, timeoutSeconds int) (*Task, error) {
+func (d *DB) CreateTask(name, description, goal, egress string, llmProfileID *int64, timeoutSeconds int) (*Task, error) {
 	tx, err := d.Begin()
 	if err != nil {
 		return nil, err
@@ -61,20 +63,20 @@ VALUES ($1, 'fact', $2, 0, 'origin', 'system')`, expID, string(originPayload)); 
 	if timeoutSeconds < 0 {
 		timeoutSeconds = 0
 	}
-	t := &Task{Name: name, Description: description, Goal: goal, ExplorationID: expID, LLMProfileID: llmProfileID, TimeoutSeconds: timeoutSeconds}
+	t := &Task{Name: name, Description: description, Goal: goal, ExplorationID: expID, LLMProfileID: llmProfileID, TimeoutSeconds: timeoutSeconds, Egress: egress}
 	if err := tx.QueryRow(`
-INSERT INTO tasks(name, description, goal, exploration_id, llm_profile_id, timeout_seconds) VALUES ($1,$2,$3,$4,$5,$6)
-RETURNING id, status, paused, created_at`, name, description, goal, expID, llmProfileID, timeoutSeconds).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
+INSERT INTO tasks(name, description, goal, exploration_id, llm_profile_id, timeout_seconds, egress) VALUES ($1,$2,$3,$4,$5,$6,$7)
+RETURNING id, status, paused, created_at`, name, description, goal, expID, llmProfileID, timeoutSeconds, egress).Scan(&t.ID, &t.Status, &t.Paused, &t.CreatedAt); err != nil {
 		return nil, err
 	}
 	return t, tx.Commit()
 }
 
-const taskCols = `id, description, goal, exploration_id, status, paused, llm_profile_id, COALESCE(parent_ref,''), created_at, completed_at, COALESCE(timeout_seconds,0), first_run_at, deadline_at, COALESCE(name,'')`
+const taskCols = `id, description, goal, exploration_id, status, paused, llm_profile_id, COALESCE(parent_ref,''), created_at, completed_at, COALESCE(timeout_seconds,0), first_run_at, deadline_at, COALESCE(name,''), COALESCE(egress,'')`
 
 func scanTask(sc interface{ Scan(...any) error }) (*Task, error) {
 	var t Task
-	if err := sc.Scan(&t.ID, &t.Description, &t.Goal, &t.ExplorationID, &t.Status, &t.Paused, &t.LLMProfileID, &t.ParentRef, &t.CreatedAt, &t.CompletedAt, &t.TimeoutSeconds, &t.FirstRunAt, &t.DeadlineAt, &t.Name); err != nil {
+	if err := sc.Scan(&t.ID, &t.Description, &t.Goal, &t.ExplorationID, &t.Status, &t.Paused, &t.LLMProfileID, &t.ParentRef, &t.CreatedAt, &t.CompletedAt, &t.TimeoutSeconds, &t.FirstRunAt, &t.DeadlineAt, &t.Name, &t.Egress); err != nil {
 		return nil, err
 	}
 	return &t, nil
@@ -184,13 +186,13 @@ func (d *DB) ReactivateTask(id int64) error {
 // UpdateTask edits a task's user-editable fields (免删重建). name/description/goal
 // take effect on the next planning round (goal is read live by the planner); a
 // changed goal does NOT auto re-decompose — it steers subsequent planning.
-func (d *DB) UpdateTask(id int64, name, description, goal string, timeoutSeconds int, llmProfileID *int64) error {
+func (d *DB) UpdateTask(id int64, name, description, goal, egress string, timeoutSeconds int, llmProfileID *int64) error {
 	if timeoutSeconds < 0 {
 		timeoutSeconds = 0
 	}
 	_, err := d.Exec(`UPDATE tasks
-	   SET name=$2, description=$3, goal=$4, timeout_seconds=$5, llm_profile_id=$6
-	 WHERE id=$1`, id, name, description, goal, timeoutSeconds, llmProfileID)
+	   SET name=$2, description=$3, goal=$4, timeout_seconds=$5, llm_profile_id=$6, egress=$7
+	 WHERE id=$1`, id, name, description, goal, timeoutSeconds, llmProfileID, egress)
 	return err
 }
 

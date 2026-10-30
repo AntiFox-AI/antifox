@@ -31,10 +31,13 @@ type LLMProfile struct {
 	// PoolExclude=true 表示该配置不作为兜底目标（仍可被显式绑定/pin 使用）。
 	Priority    int  `json:"priority"`
 	PoolExclude bool `json:"pool_exclude"`
+	// SessionHeaderKey, 非空时让每次 LLM 请求带一个自定义 HTTP 头(头名=该值、头值=当前会话
+	// session id)，供按 session 做提示缓存/粘性路由的网关(如 opencode zen)。空=不发送。
+	SessionHeaderKey string `json:"session_header_key,omitempty"`
 }
 
 func (d *DB) ListProfiles() ([]*LLMProfile, error) {
-	rows, err := d.Query(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key_hint,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false) FROM llm_profiles ORDER BY id`)
+	rows, err := d.Query(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key_hint,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false),COALESCE(session_header_key,'') FROM llm_profiles ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +45,7 @@ func (d *DB) ListProfiles() ([]*LLMProfile, error) {
 	var out []*LLMProfile
 	for rows.Next() {
 		var p LLMProfile
-		if err := rows.Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKeyHint, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKeyHint, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude, &p.SessionHeaderKey); err != nil {
 			return nil, err
 		}
 		out = append(out, &p)
@@ -54,7 +57,7 @@ func (d *DB) ListProfiles() ([]*LLMProfile, error) {
 // WITH their api keys, ordered active-first then priority DESC / id ASC — the chain
 // order the Pool consumes (the caller still forces the active profile to the head).
 func (d *DB) PoolProfiles() ([]*LLMProfile, error) {
-	rows, err := d.Query(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false)
+	rows, err := d.Query(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false),COALESCE(session_header_key,'')
 FROM llm_profiles WHERE COALESCE(pool_exclude,false)=false AND COALESCE(api_key,'')<>'' ORDER BY is_default DESC, priority DESC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -63,7 +66,7 @@ FROM llm_profiles WHERE COALESCE(pool_exclude,false)=false AND COALESCE(api_key,
 	var out []*LLMProfile
 	for rows.Next() {
 		var p LLMProfile
-		if err := rows.Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKey, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKey, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude, &p.SessionHeaderKey); err != nil {
 			return nil, err
 		}
 		out = append(out, &p)
@@ -80,8 +83,8 @@ func (d *DB) SetProfilePoolConfig(id int64, priority int, exclude bool) error {
 // ActiveProfile returns the default (active) profile with its api key, or nil.
 func (d *DB) ActiveProfile() (*LLMProfile, error) {
 	var p LLMProfile
-	err := d.QueryRow(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false) FROM llm_profiles WHERE is_default LIMIT 1`).
-		Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKey, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude)
+	err := d.QueryRow(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false),COALESCE(session_header_key,'') FROM llm_profiles WHERE is_default LIMIT 1`).
+		Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKey, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude, &p.SessionHeaderKey)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -105,8 +108,8 @@ func (d *DB) ReportRoleProfile() (*LLMProfile, error) {
 // Used to run a task on a specific (non-default) LLM profile.
 func (d *DB) ProfileByID(id int64) (*LLMProfile, error) {
 	var p LLMProfile
-	err := d.QueryRow(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false) FROM llm_profiles WHERE id=$1`, id).
-		Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKey, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude)
+	err := d.QueryRow(`SELECT id,name,format,COALESCE(base_url,''),COALESCE(proxy,''),model,COALESCE(api_key,''),rate_per_second,rate_per_minute,context_window_k,COALESCE(reasoning_effort,''),is_default,COALESCE(priority,0),COALESCE(pool_exclude,false),COALESCE(session_header_key,'') FROM llm_profiles WHERE id=$1`, id).
+		Scan(&p.ID, &p.Name, &p.Format, &p.BaseURL, &p.Proxy, &p.Model, &p.APIKey, &p.RatePerSecond, &p.RatePerMinute, &p.ContextWindowK, &p.ReasoningEffort, &p.IsDefault, &p.Priority, &p.PoolExclude, &p.SessionHeaderKey)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -121,18 +124,18 @@ func (d *DB) SaveProfile(p *LLMProfile) (int64, error) {
 	}
 	if p.ID == 0 {
 		var id int64
-		err := d.QueryRow(`INSERT INTO llm_profiles(name,format,base_url,proxy,model,api_key,api_key_hint,rate_per_second,rate_per_minute,context_window_k,reasoning_effort)
-VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10,$11) RETURNING id`,
-			p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.APIKey, hint, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort).Scan(&id)
+		err := d.QueryRow(`INSERT INTO llm_profiles(name,format,base_url,proxy,model,api_key,api_key_hint,rate_per_second,rate_per_minute,context_window_k,reasoning_effort,session_header_key)
+VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10,$11,$12) RETURNING id`,
+			p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.APIKey, hint, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort, p.SessionHeaderKey).Scan(&id)
 		return id, err
 	}
 	if p.APIKey == "" {
-		_, err := d.Exec(`UPDATE llm_profiles SET name=$1,format=$2,base_url=NULLIF($3,''),proxy=NULLIF($4,''),model=$5,rate_per_second=$6,rate_per_minute=$7,context_window_k=$8,reasoning_effort=$9 WHERE id=$10`,
-			p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort, p.ID)
+		_, err := d.Exec(`UPDATE llm_profiles SET name=$1,format=$2,base_url=NULLIF($3,''),proxy=NULLIF($4,''),model=$5,rate_per_second=$6,rate_per_minute=$7,context_window_k=$8,reasoning_effort=$9,session_header_key=$10 WHERE id=$11`,
+			p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort, p.SessionHeaderKey, p.ID)
 		return p.ID, err
 	}
-	_, err := d.Exec(`UPDATE llm_profiles SET name=$1,format=$2,base_url=NULLIF($3,''),proxy=NULLIF($4,''),model=$5,api_key=$6,api_key_hint=$7,rate_per_second=$8,rate_per_minute=$9,context_window_k=$10,reasoning_effort=$11 WHERE id=$12`,
-		p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.APIKey, hint, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort, p.ID)
+	_, err := d.Exec(`UPDATE llm_profiles SET name=$1,format=$2,base_url=NULLIF($3,''),proxy=NULLIF($4,''),model=$5,api_key=$6,api_key_hint=$7,rate_per_second=$8,rate_per_minute=$9,context_window_k=$10,reasoning_effort=$11,session_header_key=$12 WHERE id=$13`,
+		p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.APIKey, hint, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort, p.SessionHeaderKey, p.ID)
 	return p.ID, err
 }
 

@@ -46,6 +46,7 @@ type TaskDTO struct {
 	GoalsMet       int          `json:"goals_met"`
 	LLMProfileID   *int64       `json:"llm_profile_id,omitempty"` // LLM profile used for this task; nil = default
 	TimeoutSeconds int          `json:"timeout_seconds"`          // 任务级超时(秒);0=不限时。供编辑回填。
+	Egress         string       `json:"egress,omitempty"`         // 出口代理:''=跟随全局|'direct'=直连|'proxy'=走全局代理
 }
 
 // TokenTotalDTO is a whole-task (all agents) token aggregate.
@@ -80,6 +81,7 @@ func taskDTO(t *Task, status string) TaskDTO {
 		Paused:         t.Paused,
 		LLMProfileID:   t.LLMProfileID,
 		TimeoutSeconds: t.TimeoutSeconds,
+		Egress:         t.Egress,
 	}
 }
 
@@ -368,9 +370,10 @@ type LLMProfileDTO struct {
 	RatePerMinute   float64 `json:"rate_per_minute"`
 	ContextWindowK  int     `json:"context_window_k"`
 	ReasoningEffort string  `json:"reasoning_effort"`
-	IsDefault       bool    `json:"is_default"`
-	Priority        int     `json:"priority"`
-	PoolExclude     bool    `json:"pool_exclude"`
+	IsDefault        bool   `json:"is_default"`
+	Priority         int    `json:"priority"`
+	PoolExclude      bool   `json:"pool_exclude"`
+	SessionHeaderKey string `json:"session_header_key,omitempty"`
 }
 
 func llmProfileDTO(p *db.LLMProfile) LLMProfileDTO {
@@ -386,9 +389,10 @@ func llmProfileDTO(p *db.LLMProfile) LLMProfileDTO {
 		RatePerMinute:   p.RatePerMinute,
 		ContextWindowK:  p.ContextWindowK,
 		ReasoningEffort: p.ReasoningEffort,
-		IsDefault:       p.IsDefault,
-		Priority:        p.Priority,
-		PoolExclude:     p.PoolExclude,
+		IsDefault:        p.IsDefault,
+		Priority:         p.Priority,
+		PoolExclude:      p.PoolExclude,
+		SessionHeaderKey: p.SessionHeaderKey,
 	}
 }
 

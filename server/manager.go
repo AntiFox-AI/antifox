@@ -40,6 +40,7 @@ type Task struct {
 	TimeoutSeconds int                    `json:"timeout_seconds"`
 	FirstRunAt     int64                  `json:"first_run_at,omitempty"`
 	DeadlineAt     int64                  `json:"deadline_at,omitempty"`
+	Egress         string                 `json:"egress,omitempty"` // 出口代理:''=跟随全局|'direct'=直连|'proxy'=走全局代理
 	Store          *pgdb.ExplorationStore `json:"-"`
 	Guard          *guard.Guard           `json:"-"`
 	notify         chan struct{}
@@ -84,6 +85,7 @@ const (
 	settingWebSearchProxy   = "web_search_proxy"
 	settingWorkers          = "workers"
 	settingLLMPoolEnabled   = "llm_pool_enabled" // LLM 故障转移(轮询)总开关，默认关
+	settingGlobalProxy      = "global_proxy"     // 全局出口代理(http/https/socks5)：agent 目标流量作 MITM 上游出网；空=直连
 	// defaultWebSearchBackend is used when web search is on but no backend was picked.
 	defaultWebSearchBackend = "ddgs"
 	// defaultWorkers is the concurrent work-agent count when the setting is unset.
@@ -146,6 +148,7 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 			log.Printf("[traffic] disabled: %v", err)
 		} else {
 			m.traffic = tr
+			m.applyGlobalProxy() // 恢复持久化的全局出口代理(作 MITM 上游)
 			go func() {
 				log.Printf("[traffic] recording proxy on %s (set HTTP_PROXY=%s + trust _ca CA)", proxyAddr, tr.ProxyAddr())
 				if err := tr.Start(); err != nil {
@@ -466,6 +469,42 @@ func (m *Manager) ProxyAddr() string {
 	return m.traffic.ProxyAddr()
 }
 
+// GlobalProxy returns the configured global egress proxy URL ("" = direct).
+func (m *Manager) GlobalProxy() string {
+	v, _, _ := m.pg.GetSetting(settingGlobalProxy)
+	return strings.TrimSpace(v)
+}
+
+// SetGlobalProxy validates + persists the global egress proxy and hot-applies it as the
+// MITM upstream, so all captured target traffic forwards through it (hides source IP).
+// Empty = direct. Takes effect immediately (atomic swap); no restart needed.
+func (m *Manager) SetGlobalProxy(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if m.traffic != nil {
+		if err := m.traffic.SetUpstream(raw); err != nil { // validates scheme/URL before persisting
+			return err
+		}
+	}
+	return m.pg.SetSetting(settingGlobalProxy, raw)
+}
+
+// applyGlobalProxy restores the persisted global egress proxy as the MITM upstream on
+// startup. No-op when unset or when traffic capture is unavailable.
+func (m *Manager) applyGlobalProxy() {
+	if m.traffic == nil {
+		return
+	}
+	raw := m.GlobalProxy()
+	if raw == "" {
+		return
+	}
+	if err := m.traffic.SetUpstream(raw); err != nil {
+		log.Printf("[traffic] 全局出口代理无效，忽略：%v", err)
+		return
+	}
+	log.Printf("[traffic] 全局出口代理已启用：目标流量经 %s 出网", raw)
+}
+
 // ProxyCACert returns the recording proxy's CA cert path (empty when no proxy or
 // traffic capture is off), which WebFetch trusts to verify HTTPS through the MITM.
 func (m *Manager) ProxyCACert() string {
@@ -504,14 +543,15 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 		CompletedAt: unixOrZero(pt.CompletedAt), Status: pt.Status, ParentRef: pt.ParentRef,
 		LLMProfileID:   pt.LLMProfileID,
 		TimeoutSeconds: pt.TimeoutSeconds, FirstRunAt: unixOrZero(pt.FirstRunAt), DeadlineAt: unixOrZero(pt.DeadlineAt),
-		Store: store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
+		Egress: pt.Egress,
+		Store:  store, Guard: guard.NewWithInterceptor(ic), notify: make(chan struct{}, 1),
 	}
 }
 
 // CreateTask creates a task + its exploration and makes it active.
 // timeoutSeconds is the task-level wall-clock budget (0 = 不限时).
-func (m *Manager) CreateTask(name, description, goal string, llmProfileID *int64, timeoutSeconds int) (*Task, error) {
-	pt, err := m.pg.CreateTask(name, description, goal, llmProfileID, timeoutSeconds)
+func (m *Manager) CreateTask(name, description, goal, egress string, llmProfileID *int64, timeoutSeconds int) (*Task, error) {
+	pt, err := m.pg.CreateTask(name, description, goal, egress, llmProfileID, timeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -520,7 +560,27 @@ func (m *Manager) CreateTask(name, description, goal string, llmProfileID *int64
 	m.tasks[t.ID] = t
 	m.active = t.ID
 	m.mu.Unlock()
+	m.applyTaskEgress(t.ID) // 新任务成为 active → 据其出口选择设 MITM 上游
 	return t, nil
+}
+
+// applyTaskEgress sets the MITM upstream per a task's egress choice, resolved against the
+// global proxy: 'direct' = force direct; '' (follow) / 'proxy' = the global proxy if set.
+// Called when a task is created or activated so its target traffic routes per the choice.
+// No-op without traffic capture. The MITM has a single shared upstream, so the active
+// task's choice wins — intended for sequential task runs, not concurrent tasks on
+// different egress.
+func (m *Manager) applyTaskEgress(id string) {
+	if m.traffic == nil {
+		return
+	}
+	target := m.GlobalProxy() // default: follow global
+	if n, err := strconv.ParseInt(id, 10, 64); err == nil {
+		if tk, _ := m.pg.GetTask(n); tk != nil && strings.TrimSpace(tk.Egress) == "direct" {
+			target = "" // this task opts out → direct
+		}
+	}
+	_ = m.traffic.SetUpstream(target)
 }
 
 // LoadExisting rebuilds in-memory task handles from the PG task registry.
@@ -683,21 +743,26 @@ func (m *Manager) ReactivateTask(id string) error {
 }
 
 // UpdateTask edits a task's user-editable fields on PG + the in-memory handle.
-func (m *Manager) UpdateTask(id, name, description, goal string, timeoutSeconds int, llmProfileID *int64) error {
+func (m *Manager) UpdateTask(id, name, description, goal, egress string, timeoutSeconds int, llmProfileID *int64) error {
 	n, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return err
 	}
-	if err := m.pg.UpdateTask(n, name, description, goal, timeoutSeconds, llmProfileID); err != nil {
+	if err := m.pg.UpdateTask(n, name, description, goal, egress, timeoutSeconds, llmProfileID); err != nil {
 		return err
 	}
 	m.mu.Lock()
+	active := m.active == id
 	if t := m.tasks[id]; t != nil {
 		t.Name, t.Description, t.Goal = name, description, goal
 		t.TimeoutSeconds = timeoutSeconds
 		t.LLMProfileID = llmProfileID
+		t.Egress = egress
 	}
 	m.mu.Unlock()
+	if active {
+		m.applyTaskEgress(id) // 编辑了当前任务的出口选择 → 立即生效
+	}
 	return nil
 }
 
@@ -743,11 +808,15 @@ func (m *Manager) ActiveTask() *Task {
 // SetActive switches the active task. Returns false if the id is unknown.
 func (m *Manager) SetActive(id string) bool {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.tasks[id]; !ok {
+	_, ok := m.tasks[id]
+	if ok {
+		m.active = id
+	}
+	m.mu.Unlock()
+	if !ok {
 		return false
 	}
-	m.active = id
+	m.applyTaskEgress(id) // 切换当前任务 → 据其出口选择设 MITM 上游
 	return true
 }
 

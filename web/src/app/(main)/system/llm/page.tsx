@@ -57,6 +57,7 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
   const [model, setModel] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
   const [proxy, setProxy] = React.useState("");
+  const [sessionHeaderKey, setSessionHeaderKey] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
   const [rps, setRps] = React.useState("0");
   const [rpm, setRpm] = React.useState("0");
@@ -70,6 +71,7 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
     setModel("");
     setBaseUrl("");
     setProxy("");
+    setSessionHeaderKey("");
     setApiKey("");
     setRps("0");
     setRpm("0");
@@ -90,6 +92,7 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
         model: model.trim(),
         base_url: baseUrl.trim(),
         proxy: proxy.trim(),
+        session_header_key: sessionHeaderKey.trim(),
         api_key: apiKey,
         rate_per_second: Number(rps) || 0,
         rate_per_minute: Number(rpm) || 0,
@@ -176,6 +179,17 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
               value={proxy}
               onChange={(e) => setProxy(e.target.value)}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="np-session-header">{t("llm.sessionHeaderLabel")}</Label>
+            <Input
+              id="np-session-header"
+              className="font-mono"
+              placeholder="x-opencode-session"
+              value={sessionHeaderKey}
+              onChange={(e) => setSessionHeaderKey(e.target.value)}
+            />
+            <p className="text-muted-foreground text-xs">{t("llm.sessionHeaderDesc")}</p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="np-api-key">API Key</Label>
@@ -270,6 +284,7 @@ export default function LLMPage() {
   const [model, setModel] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
   const [proxy, setProxy] = React.useState("");
+  const [sessionHeaderKey, setSessionHeaderKey] = React.useState("");
   const [apiKey, setApiKey] = React.useState("");
   const [keyHint, setKeyHint] = React.useState("");
   const [rps, setRps] = React.useState("0");
@@ -363,6 +378,7 @@ export default function LLMPage() {
     setModel(selected.model);
     setBaseUrl(selected.base_url ?? "");
     setProxy(selected.proxy ?? "");
+    setSessionHeaderKey(selected.session_header_key ?? "");
     setRps(String(selected.rate_per_second ?? 0));
     setRpm(String(selected.rate_per_minute ?? 0));
     setCw(String(selected.context_window_k ?? 0));
@@ -414,6 +430,7 @@ export default function LLMPage() {
         model: model.trim(),
         base_url: baseUrl.trim(),
         proxy: proxy.trim(),
+        session_header_key: sessionHeaderKey.trim(),
         api_key: apiKey,
         rate_per_second: Number(rps) || 0,
         rate_per_minute: Number(rpm) || 0,
@@ -663,6 +680,18 @@ export default function LLMPage() {
                     onChange={(e) => setProxy(e.target.value)}
                   />
                   <p className="text-muted-foreground text-xs">{t("llm.proxyDesc")}</p>
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="session-header">{t("llm.sessionHeaderLabel")}</Label>
+                  <Input
+                    id="session-header"
+                    className="font-mono"
+                    placeholder="x-opencode-session"
+                    value={sessionHeaderKey}
+                    onChange={(e) => setSessionHeaderKey(e.target.value)}
+                  />
+                  <p className="text-muted-foreground text-xs">{t("llm.sessionHeaderDesc")}</p>
                 </div>
 
                 <div className="grid gap-2">

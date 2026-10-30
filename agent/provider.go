@@ -9,6 +9,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"antifox/engine/compaction"
 	"antifox/engine/llm"
 	acperm "antifox/engine/permission"
+	"antifox/engine/transcript"
 )
 
 // Config describes the LLM backend resolved from the environment.
@@ -39,6 +43,10 @@ type Config struct {
 	// "off" = 关闭(thinking.type=disabled); "low"/"medium"/"high"/"max" = 开启并设强度.
 	// NewProvider derives the provider-specific request fields from it.
 	ReasoningEffort string
+	// SessionHeaderKey, 非空时让每次 LLM 请求带一个自定义 HTTP 头——头名=该值、头值=当前
+	// 会话 session id(从请求 ctx 读，见 transcript.WithSessionID)。供按 session 做提示缓存/
+	// 粘性路由的网关(如 opencode zen)。空=不发送。
+	SessionHeaderKey string
 }
 
 // compaction window resolution bounds (in K tokens). Below the floor the
@@ -188,7 +196,54 @@ func (c Config) NewProvider() (llm.Provider, error) {
 	if c.RatePerSecond > 0 || c.RatePerMinute > 0 {
 		lc.RateLimit = &llm.RateLimit{PerSecond: c.RatePerSecond, PerMinute: c.RatePerMinute}
 	}
+	// 自定义会话头：提供自带 HTTP client（含 proxy + 会话头 RoundTripper），引擎此时跳过
+	// 按 lc.Proxy 自建 client，故 proxy 必须由本 client 自己施加。
+	if hk := strings.TrimSpace(c.SessionHeaderKey); hk != "" {
+		client, err := sessionHeaderClient(c.Proxy, hk)
+		if err != nil {
+			return nil, err
+		}
+		lc.HTTPClient = client
+	}
 	return llm.NewProvider(lc)
+}
+
+// sessionHeaderTransport sets a custom HTTP header (name=key) on every request, value =
+// the session id carried on the request context (transcript.SessionIDFrom). Skipped when
+// no session id is present, so non-agent calls aren't tagged.
+type sessionHeaderTransport struct {
+	base http.RoundTripper
+	key  string
+}
+
+func (t sessionHeaderTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if sid := transcript.SessionIDFrom(req.Context()); sid != "" {
+		req = req.Clone(req.Context())
+		req.Header.Set(t.key, sid)
+	}
+	return t.base.RoundTrip(req)
+}
+
+// sessionHeaderClient builds an http.Client that applies the proxy (same scheme support
+// as the engine default: http/https/socks5, else *_PROXY env) and wraps it so every
+// request carries the session-id header.
+func sessionHeaderClient(proxy, headerKey string) (*http.Client, error) {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if p := strings.TrimSpace(proxy); p != "" {
+		u, err := url.Parse(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid LLM proxy %q: %w", proxy, err)
+		}
+		switch u.Scheme {
+		case "http", "https", "socks5":
+		default:
+			return nil, fmt.Errorf("unsupported proxy scheme %q (use http, https or socks5)", u.Scheme)
+		}
+		tr.Proxy = http.ProxyURL(u)
+	} else {
+		tr.Proxy = http.ProxyFromEnvironment
+	}
+	return &http.Client{Transport: sessionHeaderTransport{base: tr, key: strings.TrimSpace(headerKey)}}, nil
 }
 
 // TestConnection makes a minimal real completion to verify the provider/model/

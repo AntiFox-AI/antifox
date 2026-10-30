@@ -133,11 +133,11 @@ export const api = {
 
   // ---- tasks ----
   tasks: () => get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
-  createTask: (name: string, description: string, goal: string, llmProfileId?: number, timeoutSeconds?: number) =>
-    post<Task>("/tasks", { name, description, goal, llm_profile_id: llmProfileId ?? null, timeout_seconds: timeoutSeconds ?? 0 }),
+  createTask: (name: string, description: string, goal: string, llmProfileId?: number, timeoutSeconds?: number, egress?: string) =>
+    post<Task>("/tasks", { name, description, goal, llm_profile_id: llmProfileId ?? null, timeout_seconds: timeoutSeconds ?? 0, egress: egress ?? "" }),
   deleteTask: (id: string) => del<{ deleted: number }>(`/tasks/${id}`),
   controlTask: (id: string, action: "pause" | "resume" | "rerun") => post<{ id: string; paused: boolean; status?: string }>(`/tasks/${id}/control`, { action }),
-  updateTask: (id: string, body: { name?: string; description?: string; goal?: string; timeout_seconds?: number; llm_profile_id?: number | null }) =>
+  updateTask: (id: string, body: { name?: string; description?: string; goal?: string; timeout_seconds?: number; llm_profile_id?: number | null; egress?: string }) =>
     patch<{ id: string; ok: boolean }>(`/tasks/${id}`, body),
   setActive: (id: string) => post<{ active: string }>("/active", { id }),
   // ---- stats ----
@@ -242,6 +242,9 @@ export const api = {
   // Run a real "test" search with the given (or saved) config to verify it works.
   testWebSearch: (patch: { web_search_backend?: string; web_search_proxy?: string; brave_search_api_key?: string; tavily_search_api_key?: string }) =>
     post<{ ok: boolean; error?: string; count?: number; backend?: string }>(`/settings/web-search/test`, patch),
+  // Verify a global egress proxy works + report the egress IP (confirms source IP is hidden).
+  testGlobalProxy: (proxy: string) =>
+    post<{ ok: boolean; error?: string; egress_ip?: string; latency_ms?: number }>(`/settings/global-proxy/test`, { global_proxy: proxy }),
 
   // ---- 一键更新（GitHub Release → 校验 → 暂存 → 守护脚本重启换装）----
   updateCheck: (force = false) => get<UpdateCheck>(`/update/check${force ? "?force=1" : ""}`),
@@ -417,6 +420,7 @@ export const api = {
     model: string;
     base_url?: string;
     proxy?: string;
+    session_header_key?: string;
     api_key?: string; // blank on update keeps the existing key
     rate_per_second?: number;
     rate_per_minute?: number;

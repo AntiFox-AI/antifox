@@ -27,6 +27,7 @@ export interface TaskFormValues {
   goal: string;
   llmProfile: string; // ACTIVE_PROFILE sentinel or a profile id string
   timeoutMin: string;
+  egress: string; // ""=跟随全局 | "proxy"=走全局代理 | "direct"=直连
 }
 
 export const BLANK_TASK_FORM: TaskFormValues = {
@@ -35,6 +36,7 @@ export const BLANK_TASK_FORM: TaskFormValues = {
   goal: "",
   llmProfile: ACTIVE_PROFILE,
   timeoutMin: "",
+  egress: "",
 };
 
 // taskFormFromTask seeds the form from an existing task (edit flow). timeout is not
@@ -45,6 +47,7 @@ export function taskFormFromTask(task: {
   goal?: string;
   llm_profile_id?: number;
   timeout_seconds?: number;
+  egress?: string;
 }): TaskFormValues {
   return {
     name: task.name ?? "",
@@ -52,6 +55,7 @@ export function taskFormFromTask(task: {
     goal: task.goal ?? "",
     llmProfile: task.llm_profile_id ? String(task.llm_profile_id) : ACTIVE_PROFILE,
     timeoutMin: task.timeout_seconds ? String(Math.floor(task.timeout_seconds / 60)) : "",
+    egress: task.egress ?? "",
   };
 }
 
@@ -62,6 +66,7 @@ export function taskFormToApi(v: TaskFormValues): {
   goal: string;
   timeoutSeconds: number;
   llmProfileId: number | undefined;
+  egress: string;
 } {
   return {
     name: v.name.trim(),
@@ -69,6 +74,7 @@ export function taskFormToApi(v: TaskFormValues): {
     goal: v.goal.trim(),
     timeoutSeconds: Math.max(0, Math.floor(Number(v.timeoutMin) || 0)) * 60,
     llmProfileId: v.llmProfile === ACTIVE_PROFILE ? undefined : Number(v.llmProfile),
+    egress: v.egress,
   };
 }
 
@@ -151,6 +157,20 @@ export function TaskFormFields({ values, onChange, profiles, idPrefix = "task", 
           onChange={(e) => onChange({ timeoutMin: e.target.value })}
         />
         <p className="text-muted-foreground text-xs">{t("tasks.timeoutHint")}</p>
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor={`${idPrefix}-egress`}>{t("tasks.egressLabel")}</Label>
+        <Select value={values.egress || "follow"} onValueChange={(v) => onChange({ egress: v === "follow" ? "" : v })}>
+          <SelectTrigger id={`${idPrefix}-egress`} className="w-56">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="follow">{t("tasks.egressFollow")}</SelectItem>
+            <SelectItem value="proxy">{t("tasks.egressProxy")}</SelectItem>
+            <SelectItem value="direct">{t("tasks.egressDirect")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">{t("tasks.egressHint")}</p>
       </div>
     </div>
   );

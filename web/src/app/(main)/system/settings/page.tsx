@@ -35,6 +35,9 @@ export default function SystemSettingsPage() {
   const [pyInterp, setPyInterp] = React.useState("");
   const [workers, setWorkers] = React.useState("3");
   const [savingWorkers, setSavingWorkers] = React.useState(false);
+  const [globalProxy, setGlobalProxy] = React.useState("");
+  const [savingGlobalProxy, setSavingGlobalProxy] = React.useState(false);
+  const [testingGlobalProxy, setTestingGlobalProxy] = React.useState(false);
 
   const apply = React.useCallback((s: Settings) => {
     setTrafficCapture(!!s.traffic_capture);
@@ -43,9 +46,34 @@ export default function SystemSettingsPage() {
     setBraveKeySet(!!s.brave_key_set);
     setTavilyKeySet(!!s.tavily_key_set);
     setProxyInput(s.web_search_proxy || "");
+    setGlobalProxy(s.global_proxy || "");
     setPyInterp(s.python_interpreter || "");
     setWorkers(String(s.workers ?? 3));
   }, []);
+
+  const saveGlobalProxy = () => {
+    setSavingGlobalProxy(true);
+    api
+      .setSettings({ global_proxy: globalProxy.trim() })
+      .then((s) => {
+        apply(s);
+        toast.success(globalProxy.trim() ? t("settings.globalProxy.saved") : t("settings.globalProxy.cleared"));
+      })
+      .catch((e) => toast.error((e as Error).message))
+      .finally(() => setSavingGlobalProxy(false));
+  };
+
+  const testGlobalProxy = () => {
+    setTestingGlobalProxy(true);
+    api
+      .testGlobalProxy(globalProxy.trim())
+      .then((r) => {
+        if (r.ok) toast.success(t("settings.globalProxy.testOk", { ip: r.egress_ip || "?", ms: r.latency_ms ?? "?" }));
+        else toast.error(t("settings.globalProxy.testFailed", { error: r.error || "?" }));
+      })
+      .catch((e) => toast.error((e as Error).message))
+      .finally(() => setTestingGlobalProxy(false));
+  };
 
   const saveWorkers = () => {
     const n = Number(workers);
@@ -210,6 +238,36 @@ export default function SystemSettingsPage() {
             disabled={!loaded || saving}
             onCheckedChange={toggleTraffic}
           />
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl lg:max-w-none">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <RadioTowerIcon className="size-4" />
+            {t("settings.globalProxy.title")}
+          </CardTitle>
+          <CardDescription>
+            <Trans i18nKey="settings.globalProxy.desc" components={{ b: <b /> }} />
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <Input
+              className="font-mono"
+              placeholder="socks5://user:pass@127.0.0.1:1080 · http://127.0.0.1:8080"
+              value={globalProxy}
+              disabled={!loaded || savingGlobalProxy}
+              onChange={(e) => setGlobalProxy(e.target.value)}
+            />
+            <Button type="button" onClick={saveGlobalProxy} disabled={!loaded || savingGlobalProxy}>
+              {t("common.save")}
+            </Button>
+            <Button type="button" variant="outline" className="shrink-0" onClick={testGlobalProxy} disabled={!loaded || testingGlobalProxy || !globalProxy.trim()}>
+              {testingGlobalProxy ? t("settings.globalProxy.testing") : t("settings.globalProxy.test")}
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-xs">{t("settings.globalProxy.hint")}</p>
         </CardContent>
       </Card>
 
