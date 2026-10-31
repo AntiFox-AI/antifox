@@ -170,7 +170,6 @@ export function TaskFormFields({ values, onChange, profiles, idPrefix = "task", 
             <SelectItem value="direct">{t("tasks.egressDirect")}</SelectItem>
           </SelectContent>
         </Select>
-        <p className="text-muted-foreground text-xs">{t("tasks.egressHint")}</p>
       </div>
     </div>
   );

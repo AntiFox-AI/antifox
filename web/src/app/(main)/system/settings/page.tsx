@@ -212,8 +212,8 @@ export default function SystemSettingsPage() {
         <p className="text-muted-foreground text-sm">{t("settings.subtitle")}</p>
       </div>
 
-      {/* 2 列自适应：窄屏单列(卡片限宽易读)，≥lg 双列铺满宽度 */}
-      <div className="grid grid-cols-1 items-start gap-4 md:gap-6 lg:grid-cols-2">
+      {/* 2 列自适应瀑布流：窄屏单列，≥lg 双列按列紧凑排布(避免行高对齐留白) */}
+      <div className="columns-1 gap-4 md:gap-6 lg:columns-2 [&>*]:mb-4 md:[&>*]:mb-6 [&>*]:break-inside-avoid">
       <UpdateCard />
 
       <Card className="max-w-2xl lg:max-w-none">
@@ -267,7 +267,6 @@ export default function SystemSettingsPage() {
               {testingGlobalProxy ? t("settings.globalProxy.testing") : t("settings.globalProxy.test")}
             </Button>
           </div>
-          <p className="text-muted-foreground text-xs">{t("settings.globalProxy.hint")}</p>
         </CardContent>
       </Card>
 

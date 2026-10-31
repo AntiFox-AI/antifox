@@ -1929,6 +1929,17 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 // mirroring testLLM. Backend/proxy come from the request (so the form's unsaved
 // edits are tested); empty API keys fall back to stored values so the user need
 // not retype them. Always 200 with {ok, error?, count?, backend?}.
+// egressProbes are plain-text IP-echo endpoints the proxy check tries in order
+// until one answers with a valid IP. Relying on a single service is fragile — some
+// are unreachable from restricted egress networks — so the check falls back across
+// several rather than failing when the first one is unavailable.
+var egressProbes = []string{
+	"https://ifconfig.me/ip",
+	"https://icanhazip.com",
+	"https://api.ip.sb/ip",
+	"https://api.ipify.org",
+}
+
 // testGlobalProxy verifies a global egress proxy works by fetching the egress IP through
 // it (what a target would see — confirms the source IP is actually hidden). Tests the
 // submitted proxy, or the saved one when blank; never persists.
@@ -1952,23 +1963,41 @@ func (s *Server) testGlobalProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.Proxy = http.ProxyURL(u)
-	client := &http.Client{Transport: tr, Timeout: 12 * time.Second}
-	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org?format=text", nil)
-	start := time.Now()
-	resp, err := client.Do(req)
-	if err != nil {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error()})
+	client := &http.Client{Transport: tr}
+	var lastErr string
+	for _, probe := range egressProbes {
+		ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, probe, nil)
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			cancel()
+			lastErr = err.Error()
+			continue
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
+		resp.Body.Close()
+		cancel()
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Sprintf("HTTP %d", resp.StatusCode)
+			continue
+		}
+		ip := strings.TrimSpace(string(raw))
+		if net.ParseIP(ip) == nil {
+			lastErr = "返回非 IP 响应"
+			continue
+		}
+		writeJSON(w, 200, map[string]any{
+			"ok":         true,
+			"egress_ip":  ip,
+			"latency_ms": time.Since(start).Milliseconds(),
+		})
 		return
 	}
-	defer resp.Body.Close()
-	ip, _ := io.ReadAll(io.LimitReader(resp.Body, 64))
-	writeJSON(w, 200, map[string]any{
-		"ok":         resp.StatusCode == http.StatusOK,
-		"egress_ip":  strings.TrimSpace(string(ip)),
-		"latency_ms": time.Since(start).Milliseconds(),
-	})
+	if lastErr == "" {
+		lastErr = "无可用检测节点"
+	}
+	writeJSON(w, 200, map[string]any{"ok": false, "error": lastErr})
 }
 
 func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {

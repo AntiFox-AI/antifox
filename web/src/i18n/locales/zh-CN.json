@@ -1247,8 +1247,7 @@
     },
     "globalProxy": {
       "title": "全局出口代理",
-      "desc": "所有 Agent 的<b>目标流量</b>经此代理出网（隐藏源 IP / 走跳板），支持 <b>http / https / socks5</b>，可带 user:pass 认证。开启流量捕获时它作为记录代理的上游；留空=直连。",
-      "hint": "渗透测试常用：别用平台真实 IP 直连目标。配好后点「测试可用性」会经代理取一次出口 IP，确认源 IP 已隐藏。",
+      "desc": "所有 Agent 的<b>目标流量</b>经此代理出网，支持 <b>http / https / socks5</b>，可带 user:pass 认证。开启流量捕获时它作为记录代理的上游；留空=直连。",
       "test": "测试可用性",
       "testing": "测试中…",
       "testOk": "代理可用 · 出口 IP {{ip}} · {{ms}}ms",
@@ -1585,7 +1584,6 @@
     "egressFollow": "跟随全局（默认）",
     "egressProxy": "走全局代理",
     "egressDirect": "直连（不走代理）",
-    "egressHint": "该任务的目标流量走不走全局出口代理（在「系统配置 → 全局出口代理」配置）。跟随全局=配了就走；直连=即使配了也不走。顺序跑任务即时生效。",
     "emptyNoTasks": "暂无任务，点击右上角「新建任务」开始。",
     "emptyNoMatch": "没有匹配的任务。",
     "goalProgress": "目标进度",

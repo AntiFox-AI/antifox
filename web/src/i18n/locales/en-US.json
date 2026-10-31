@@ -1247,8 +1247,7 @@
     },
     "globalProxy": {
       "title": "Global Egress Proxy",
-      "desc": "All agents' <b>target traffic</b> goes out through this proxy (hide source IP / use a jump box). Supports <b>http / https / socks5</b> with optional user:pass auth. When traffic capture is on it acts as the recording proxy's upstream; empty = direct.",
-      "hint": "Common in pentests: don't hit targets from the platform's real IP. After saving, click Test to fetch the egress IP through the proxy and confirm the source IP is hidden.",
+      "desc": "All agents' <b>target traffic</b> goes out through this proxy. Supports <b>http / https / socks5</b> with optional user:pass auth. When traffic capture is on it acts as the recording proxy's upstream; empty = direct.",
       "test": "Test",
       "testing": "Testing…",
       "testOk": "Proxy works · egress IP {{ip}} · {{ms}}ms",
@@ -1585,7 +1584,6 @@
     "egressFollow": "Follow global (default)",
     "egressProxy": "Use global proxy",
     "egressDirect": "Direct (no proxy)",
-    "egressHint": "Whether this task's target traffic uses the global egress proxy (configured in System Settings → Global Egress Proxy). Follow global = use it if set; Direct = bypass it even if set. Applies immediately for sequential tasks.",
     "emptyNoTasks": "No tasks yet. Click \"New Task\" in the top right to start.",
     "emptyNoMatch": "No matching tasks.",
     "goalProgress": "Goal Progress",
