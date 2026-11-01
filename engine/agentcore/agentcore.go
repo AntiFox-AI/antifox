@@ -435,8 +435,10 @@ func (s *Session) Prompt(ctx context.Context, input string) iter.Seq2[harness.Ev
 	s.messages = append(s.messages, userMsg)
 	if s.writer != nil {
 		s.writer.RecordMessage(userMsg, llm.Usage{})
-		ctx = transcript.WithSessionID(ctx, s.sessionID)
 	}
+	// 不论是否落盘都带上本会话 id：自定义会话头(agent.sessionHeaderTransport)从这里取值，
+	// 不挂 transcript 的会话(如连接测试)也要能带上。未配会话头时不会发送。
+	ctx = transcript.WithSessionID(ctx, s.sessionID)
 	var reminderExtra string
 	if s.opts.SystemReminderFunc != nil {
 		reminderExtra = s.opts.SystemReminderFunc()
