@@ -6,7 +6,7 @@
 
 从侦察到报告交付，多智能体自主完成 · 全程可视化 · 可介入 · 可交付
 
-中文 | [English](README.en.md)
+中文 | [English](README.en.md) | [日本語](README.ja.md)
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/AntiFox-AI/antifox?color=success)](https://github.com/AntiFox-AI/antifox/releases/latest)
