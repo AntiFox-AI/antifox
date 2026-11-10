@@ -6,7 +6,7 @@
 
 From recon to report delivery — multi-agent, autonomous · fully observable · interactive · deliverable
 
-[中文](README.md) | English
+[中文](README.md) | English | [日本語](README.ja.md)
 
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/AntiFox-AI/antifox?color=success)](https://github.com/AntiFox-AI/antifox/releases/latest)
