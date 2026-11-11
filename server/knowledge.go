@@ -5,6 +5,7 @@ package server
 // The heavy lifting (chunk/embed/retrieve) lives in the knowledge package.
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -230,6 +231,10 @@ func (s *Server) getKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 
 // PUT /api/knowledge/config {enabled, base_url, model, api_key, dim}
 func (s *Server) saveKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可修改知识库嵌入配置")
+		return
+	}
 	var b struct {
 		Enabled bool   `json:"enabled"`
 		BaseURL string `json:"base_url"`
@@ -242,6 +247,10 @@ func (s *Server) saveKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.m.pg.SaveKnowledgeConfig(b.Enabled, b.BaseURL, b.Model, b.APIKey, b.Dim); err != nil {
+		if errors.Is(err, db.ErrKnowledgeKeyRequired) {
+			writeErr(w, 400, err.Error())
+			return
+		}
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -250,6 +259,10 @@ func (s *Server) saveKnowledgeConfig(w http.ResponseWriter, r *http.Request) {
 
 // POST /api/knowledge/config/test — probe the configured embedder.
 func (s *Server) testKnowledgeEmbedder(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可测试知识库嵌入配置")
+		return
+	}
 	dim, err := s.kb().TestEmbedder(s.ctx)
 	if err != nil {
 		writeErr(w, 400, "连通失败: "+err.Error())

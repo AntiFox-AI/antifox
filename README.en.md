@@ -17,6 +17,10 @@ From recon to report delivery — multi-agent, autonomous · fully observable ·
 
 </div>
 
+> **Proxy security:** The traffic proxy listens on `127.0.0.1:8788` by default, and Docker Compose no longer publishes its port. The proxy has no client authentication; if `-proxy` is changed to a non-loopback address, restrict access using a firewall and network isolation. Only administrators can change embedding configuration or existing MCP configurations; saved MCP environment variables and headers are not displayed.
+
+> **Task isolation limitation:** The `assigned` / `own` resource scopes are not yet enforced for tasks and related data. Do not rely on these scopes to isolate sensitive tasks between users.
+
 ---
 
 ## Overview

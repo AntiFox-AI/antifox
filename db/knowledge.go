@@ -7,11 +7,14 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var ErrKnowledgeKeyRequired = errors.New("修改嵌入服务地址时需要重新输入 API Key")
 
 type KnowledgeDoc struct {
 	ID        int64     `json:"id"`
@@ -87,15 +90,26 @@ func (d *DB) GetKnowledgeConfig() (*KnowledgeConfig, error) {
 	return &c, nil
 }
 
-// SaveKnowledgeConfig upserts the embedder config. Empty apiKey keeps the existing key.
+// SaveKnowledgeConfig keeps an existing key only when the endpoint is unchanged.
 func (d *DB) SaveKnowledgeConfig(enabled bool, baseURL, model, apiKey string, dim int) error {
 	if dim <= 0 {
 		dim = 1024
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		_, err := d.Exec(`UPDATE knowledge_config SET enabled=$1, base_url=$2, model=$3, dim=$4, updated_at=now() WHERE id=1`,
+		res, err := d.Exec(`UPDATE knowledge_config SET enabled=$1, base_url=$2, model=$3, dim=$4, updated_at=now()
+			WHERE id=1 AND (base_url=$2 OR COALESCE(api_key,'')='')`,
 			enabled, baseURL, model, dim)
-		return err
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrKnowledgeKeyRequired
+		}
+		return nil
 	}
 	_, err := d.Exec(`UPDATE knowledge_config SET enabled=$1, base_url=$2, model=$3, api_key=$4, dim=$5, updated_at=now() WHERE id=1`,
 		enabled, baseURL, model, apiKey, dim)
