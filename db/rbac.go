@@ -270,6 +270,10 @@ func (d *DB) ResolveRBACAccess(userID string) (*RBACAccess, error) {
 		acc.Roles = append(acc.Roles, r)
 		acc.Scope = mergeScope(acc.Scope, r.Scope)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
 	rows.Close()
 	prows, err := d.Query(`SELECT DISTINCT rp.permission_key FROM rbac_role_permissions rp
 		JOIN rbac_user_roles ur ON ur.role_id=rp.role_id WHERE ur.user_id=$1`, userID)

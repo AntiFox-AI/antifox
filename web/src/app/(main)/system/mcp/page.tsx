@@ -115,12 +115,6 @@ export default function MCPPage() {
     }
     return out;
   }
-  function envToText(env: Record<string, string> | undefined): string {
-    return Object.entries(env ?? {})
-      .map(([k, v]) => `${k}=${v}`)
-      .join("\n");
-  }
-
   function openAdd() {
     setEditing(null);
     setForm(emptyForm);
@@ -137,8 +131,8 @@ export default function MCPPage() {
       command: s.command ?? "",
       args: (s.args ?? []).join(" "),
       url: s.url ?? "",
-      env: envToText(s.env),
-      headers: envToText(s.headers),
+      env: "",
+      headers: "",
       description: s.description ?? "",
       timeoutSeconds: s.timeout_seconds ?? 30,
     });
@@ -180,14 +174,14 @@ export default function MCPPage() {
               url: form.url.trim(),
               command: "",
               args: [] as string[],
-              env: parseEnv(form.env),
-              headers: parseEnv(form.headers),
+              ...(form.env.trim() || !editing ? { env: parseEnv(form.env) } : {}),
+              ...(form.headers.trim() || !editing ? { headers: parseEnv(form.headers) } : {}),
             }
           : {
               transport: "stdio" as const,
               command: form.command.trim(),
               args: form.args.trim() ? form.args.trim().split(/\s+/) : [],
-              env: parseEnv(form.env),
+              ...(form.env.trim() || !editing ? { env: parseEnv(form.env) } : {}),
             };
       await api.saveMcpServer({
         ...(editing ? { id: editing.id } : {}),
@@ -339,6 +333,7 @@ export default function MCPPage() {
             value={form.env}
             onChange={(e) => setF({ env: e.target.value })}
           />
+          {editing && <p className="text-muted-foreground text-xs">{tr("mcp.secretEditHint")}</p>}
         </div>
         {form.transport === "http" && (
           <div className="grid gap-2">

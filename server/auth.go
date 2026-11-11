@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -138,38 +140,56 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 			return
 		}
 		// 解析授权画像（供 RBAC 强制与管理），账号停用 / token 版本过期即拒。
-		if s.m != nil && s.m.pg != nil && claims.Subject != "" {
-			acc, err := s.m.pg.ResolveRBACAccess(claims.Subject)
-			if err == nil && acc != nil {
-				if !acc.User.Enabled {
-					writeErr(w, 403, "账号已停用")
-					return
+		if strings.TrimSpace(claims.Subject) == "" {
+			writeErr(w, 401, "登录状态已失效，请重新登录")
+			return
+		}
+		if s.m == nil || s.m.pg == nil {
+			writeErr(w, 503, "授权服务暂时不可用")
+			return
+		}
+		acc, err := s.m.pg.ResolveRBACAccess(claims.Subject)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, 401, "登录状态已失效，请重新登录")
+			} else {
+				log.Printf("[auth] 授权查询失败: %v", err)
+				writeErr(w, 503, "授权服务暂时不可用")
+			}
+			return
+		}
+		if acc == nil {
+			log.Printf("[auth] 授权查询返回空画像")
+			writeErr(w, 503, "授权服务暂时不可用")
+			return
+		}
+		if !acc.User.Enabled {
+			writeErr(w, 403, "账号已停用")
+			return
+		}
+		// token 版本校验：改密 / 停用后 token_version 自增，旧 token 携带的 Ver
+		// 落后即失效，强制重新登录。
+		if claims.Ver != acc.User.TokenVersion {
+			writeErr(w, 401, "登录状态已失效，请重新登录")
+			return
+		}
+		// 滑动续期（= 空闲超时）：token 走过半程且仍在活跃使用，就签发新 token 经
+		// X-Refresh-Token 响应头回传，前端替换存储；空闲超过会话时长则自然过期需重登。
+		if claims.ExpiresAt != nil {
+			ttl := s.sessionTTL()
+			if rem := time.Until(claims.ExpiresAt.Time); rem > 0 && rem < ttl/2 {
+				if fresh, err := signJWTTTL(s.jwtKey, claims.Subject, claims.Username, acc.User.TokenVersion, ttl); err == nil {
+					w.Header().Set("Access-Control-Expose-Headers", "X-Refresh-Token")
+					w.Header().Set("X-Refresh-Token", fresh)
 				}
-				// token 版本校验：改密 / 停用后 token_version 自增，旧 token 携带的 Ver
-				// 落后即失效，强制重新登录。
-				if claims.Ver != acc.User.TokenVersion {
-					writeErr(w, 401, "登录状态已失效，请重新登录")
-					return
-				}
-				// 滑动续期（= 空闲超时）：token 走过半程且仍在活跃使用，就签发新 token 经
-				// X-Refresh-Token 响应头回传，前端替换存储；空闲超过会话时长则自然过期需重登。
-				if claims.ExpiresAt != nil {
-					ttl := s.sessionTTL()
-					if rem := time.Until(claims.ExpiresAt.Time); rem > 0 && rem < ttl/2 {
-						if fresh, err := signJWTTTL(s.jwtKey, claims.Subject, claims.Username, acc.User.TokenVersion, ttl); err == nil {
-							w.Header().Set("Access-Control-Expose-Headers", "X-Refresh-Token")
-							w.Header().Set("X-Refresh-Token", fresh)
-						}
-					}
-				}
-				r = r.WithContext(context.WithValue(r.Context(), accessCtxKey, acc))
-				// 权限强制拦截。安全阀：未映射路由放行；admin(全权)永不被拦；开关 rbac.enforce 默认 true。
-				if s.m.pg.GetBool("rbac.enforce", true) {
-					if perm := permissionForRequest(r.Method, r.URL.Path); perm != "" && !acc.Permissions[perm] {
-						writeErr(w, 403, "权限不足："+perm)
-						return
-					}
-				}
+			}
+		}
+		r = r.WithContext(context.WithValue(r.Context(), accessCtxKey, acc))
+		// 权限强制拦截。安全阀：未映射路由放行；admin(全权)永不被拦；开关 rbac.enforce 默认 true。
+		if s.m.pg.GetBool("rbac.enforce", true) {
+			if perm := permissionForRequest(r.Method, r.URL.Path); perm != "" && !acc.Permissions[perm] {
+				writeErr(w, 403, "权限不足："+perm)
+				return
 			}
 		}
 		h.ServeHTTP(w, r)
