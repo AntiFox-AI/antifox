@@ -31,6 +31,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// contentLang mirrors the server's content_lang setting ("zh-CN" default |
+// "en-US") for model-visible runtime strings (tool result texts). Set once at
+// boot via SetContentLang.
+var contentLang = "zh-CN"
+
+// SetContentLang sets the language for model-visible runtime strings
+// (normalized: anything other than "en-US" falls back to "zh-CN").
+func SetContentLang(l string) {
+	if l == "en-US" {
+		contentLang = "en-US"
+	} else {
+		contentLang = "zh-CN"
+	}
+}
+
+func tr(zh, en string) string {
+	if contentLang == "en-US" {
+		return en
+	}
+	return zh
+}
+
 const indexSchema = `
 CREATE TABLE IF NOT EXISTS exchanges (
   id           TEXT PRIMARY KEY,
@@ -1260,14 +1282,17 @@ func (t *Traffic) Tools() []actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			if strings.TrimSpace(a.Host) == "" {
-				return actool.Errorf("host 为必填参数：请指定要查询的主机（如 '192.168.1.100:8082'），避免全库扫描。"), nil
+				return actool.Errorf(tr(
+					"host 为必填参数：请指定要查询的主机（如 '192.168.1.100:8082'），避免全库扫描。",
+					"host is required: specify the host to query (e.g. '192.168.1.100:8082') to avoid a full-store scan.",
+				)), nil
 			}
 			rows, err := t.query(a.Host, a.Contains, a.Page, a.Limit)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
 			if len(rows) == 0 {
-				return actool.Text("无匹配流量。"), nil
+				return actool.Text(tr("无匹配流量。", "No matching traffic.")), nil
 			}
 			// 精简为最小索引：仅保留定位所需字段 + 响应码/长度，不带任何响应内容。
 			type liteRow struct {
@@ -1318,5 +1343,8 @@ func clip(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + fmt.Sprintf("\n... [截断，共 %d 字节；完整在流量文件树] ...", len(s))
+	return s[:max] + tr(
+		fmt.Sprintf("\n... [截断，共 %d 字节；完整在流量文件树] ...", len(s)),
+		fmt.Sprintf("\n... [truncated, %d bytes total; full body in the traffic file tree] ...", len(s)),
+	)
 }

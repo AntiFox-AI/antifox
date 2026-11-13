@@ -147,6 +147,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 	agent.SetContentLang(contentLang)
 	// Intercept approval summaries / deny-ask messages follow the same language.
 	intercept.SetContentLang(contentLang)
+	// Traffic tool runtime result texts follow it too.
+	traffic.SetContentLang(contentLang)
 	// 内置 skill 库：把 embed 进二进制的默认 skill 物化到 skillDir（仅缺失时写）。
 	// 单二进制自包含，云/客户现场部署首启即有全套 skill，不依赖 dev 机文件。
 	materializeEmbeddedSkills(skillDir, contentLang)
@@ -1908,6 +1910,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		agent.SetContentLang(*req.ContentLang)
 		// Intercept approval summaries / messages follow the language switch too.
 		intercept.SetContentLang(*req.ContentLang)
+		// Traffic tool runtime texts follow the language switch too.
+		traffic.SetContentLang(*req.ContentLang)
 		// Re-apply built-in agent display names + var catalog in the new language.
 		if err := s.m.pg.ApplyBuiltinAgentNames(*req.ContentLang); err != nil {
 			s.writeErrL(w, 500, "language saved but agent names could not be re-applied: "+err.Error(), "语言已保存，但内置 agent 名称重应用失败："+err.Error())
