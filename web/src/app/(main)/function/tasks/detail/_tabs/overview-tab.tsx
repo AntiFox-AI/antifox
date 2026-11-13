@@ -123,7 +123,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
             <div className="mt-1 inline-flex items-center gap-1 text-sm">
               <ClockIcon className="size-3.5" />
               {task?.last_activity
-                ? new Date(task.last_activity).toLocaleTimeString("zh-CN")
+                ? new Date(task.last_activity).toLocaleTimeString("en-US")
                 : "—"}
             </div>
           </div>
@@ -138,7 +138,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               <div className="text-xs text-muted-foreground">{t("taskDetail.overview.completedAt")}</div>
               <div className="mt-1 inline-flex items-center gap-1 text-sm">
                 <ClockIcon className="size-3.5" />
-                {new Date(task.completed_unix * 1000).toLocaleString("zh-CN")}
+                {new Date(task.completed_unix * 1000).toLocaleString("en-US")}
               </div>
             </div>
           ) : null}

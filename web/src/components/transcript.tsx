@@ -151,8 +151,12 @@ function InterceptCard({
   }, [step.summary]);
 
   const toolName = React.useMemo(() => {
-    const m = /工具\s+(\S+)\s+请求/.exec(step.summary);
-    return m ? m[1] : step.summary;
+    // English: "Tool Bash requests approval (#42)" — with a fallback to the
+    // legacy Chinese summary format so historical activity still parses.
+    const en = /Tool\s+(\S+)\s+requests approval/.exec(step.summary);
+    if (en) return en[1];
+    const zh = /工具\s+(\S+)\s+请求/.exec(step.summary);
+    return zh ? zh[1] : step.summary;
   }, [step.summary]);
 
   const [detail, setDetail] = React.useState<Record<string, unknown> | null>(null);
@@ -316,7 +320,7 @@ function ToolBlock({
       if (!live) return;
       setDetail(
         segs
-          .map((x, i) => `【${x.label}】\n${x.label === cmdLabel ? toolInputText(toolName, parts[i]) : parts[i]}`)
+          .map((x, i) => `[${x.label}]\n${x.label === cmdLabel ? toolInputText(toolName, parts[i]) : parts[i]}`)
           .join("\n\n"),
       );
       loadedKey.current = detailKey;
@@ -387,7 +391,7 @@ function MessageBlock({
       ),
     ).then((parts) => {
       if (!live) return;
-      setDetail(group.steps.map((s, i) => `【${kindLabel(s.kind, t)}】\n${parts[i]}`).join("\n\n"));
+      setDetail(group.steps.map((s, i) => `[${kindLabel(s.kind, t)}]\n${parts[i]}`).join("\n\n"));
       loadedKey.current = detailKey;
     });
     return () => {

@@ -24,7 +24,7 @@ func ParseScopeLine(line string) (ParsedScope, error) {
 	raw := strings.TrimSpace(line)
 	r := ParsedScope{Raw: raw}
 	if raw == "" {
-		return r, fmt.Errorf("空行")
+		return r, fmt.Errorf("empty line")
 	}
 	s := raw
 	if i := strings.Index(s, "://"); i >= 0 { // strip scheme if a URL was pasted
@@ -34,10 +34,10 @@ func ParseScopeLine(line string) (ParsedScope, error) {
 	if _, ipnet, err := net.ParseCIDR(s); err == nil {
 		ones, bits := ipnet.Mask.Size()
 		if bits == 32 && ones < 16 {
-			return r, fmt.Errorf("网段过宽(IPv4 需 >= /16): %s", raw)
+			return r, fmt.Errorf("network too broad (IPv4 needs >= /16): %s", raw)
 		}
 		if bits == 128 && ones < 32 {
-			return r, fmt.Errorf("网段过宽(IPv6 需 >= /32): %s", raw)
+			return r, fmt.Errorf("network too broad (IPv6 needs >= /32): %s", raw)
 		}
 		r.Kind, r.Net = "cidr", ipnet.String()
 		return r, nil
@@ -60,15 +60,15 @@ func ParseScopeLine(line string) (ParsedScope, error) {
 		s = host
 	}
 	if strings.Contains(raw, "-") && strings.Count(raw, ".") >= 6 {
-		return r, fmt.Errorf("IP 段请用 CIDR 表示(如 1.2.3.0/24): %s", raw)
+		return r, fmt.Errorf("IP ranges must be expressed as CIDR (e.g. 1.2.3.0/24): %s", raw)
 	}
 	// Domain (registrable). Reject bare TLDs / public suffixes.
 	d := DomainKey(s)
 	if d == "" || !strings.Contains(d, ".") {
-		return r, fmt.Errorf("无法识别为根域名/IP/CIDR: %s", raw)
+		return r, fmt.Errorf("cannot parse as root domain/IP/CIDR: %s", raw)
 	}
 	if suf, icann := publicsuffix.PublicSuffix(d); icann && suf == d {
-		return r, fmt.Errorf("不能用裸 TLD 作为范围: %s", raw)
+		return r, fmt.Errorf("a bare TLD cannot be used as scope: %s", raw)
 	}
 	r.Kind, r.Domain = "domain", d
 	return r, nil

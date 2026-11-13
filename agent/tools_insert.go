@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	actool "antifox/engine/tool"
 	"antifox/db"
+	actool "antifox/engine/tool"
 	"antifox/knowledge"
 )
 
@@ -71,86 +71,86 @@ type assetInputItem struct {
 func (t *ToolSet) insertAssets() actool.CoreTool {
 	return writeTool(
 		"insert_assets",
-		"发现新资产时立即批量插入资产到资产库。支持一次提交多种资产类型：root_domain/ip/subdomain/app/service/endpoint。\n"+
-			"每条资产的字段说明：\n"+
-			"• root_domain：domain(根域名, 必填)、icp(备案, 可选)\n"+
-			"• ip：ip(IP地址, 必填)、bound_domains([域名])、open_ports([{port,service}])\n"+
-			"• subdomain：domain(子域名, 必填)、record_type(A/AAAA/CNAME等)、record_value(记录值)、icp(可选)\n"+
-			"• app：app_name(应用名, 必填)、bundle_id(bundle id, 可选)、category、description、app_icp、company_id(归属企业 id, 可选)\n"+
-			"• service(http)：url(必填)、technologies([指纹])、status_code、content_length、page_title、favicon_mmh3、auth([{type,username,password,...}])、service_ip\n"+
-			"• service(other)：service_name(必填)、ip或domain(至少一个)、port(必填)、auth([...])\n"+
-			"• endpoint：url(必填)、method(必填)、params([{location,name,value,type}])、service_ip\n"+
-			"auth/technologies/params 都是【追加合并】(append)，不会覆盖原有值。\n"+
-			"返回：{results:[{index,id,type}], errors:[{index,error}]}",
+		"Immediately batch-insert newly discovered assets into the asset store. Supports submitting multiple asset types at once: root_domain/ip/subdomain/app/service/endpoint.\n"+
+			"Field notes per asset type:\n"+
+			"• root_domain: domain (root domain, required), icp (ICP filing, optional)\n"+
+			"• ip: ip (IP address, required), bound_domains ([domains]), open_ports ([{port,service}])\n"+
+			"• subdomain: domain (subdomain, required), record_type (A/AAAA/CNAME etc.), record_value (record values), icp (optional)\n"+
+			"• app: app_name (application name, required), bundle_id (bundle id, optional), category, description, app_icp, company_id (owning company id, optional)\n"+
+			"• service(http): url (required), technologies ([fingerprints]), status_code, content_length, page_title, favicon_mmh3, auth ([{type,username,password,...}]), service_ip\n"+
+			"• service(other): service_name (required), ip or domain (at least one), port (required), auth ([...])\n"+
+			"• endpoint: url (required), method (required), params ([{location,name,value,type}]), service_ip\n"+
+			"auth/technologies/params are all [append-merged]; existing values are never overwritten.\n"+
+			"Returns: {results:[{index,id,type}], errors:[{index,error}]}",
 		obj(map[string]any{
-			"task_id": intp("任务 id（可选，用于关联 task_ids）"),
+			"task_id": intp("Task id (optional; used to associate task_ids)"),
 			"assets": map[string]any{
 				"type":        "array",
-				"description": "资产数组，每个元素对应一条资产记录",
+				"description": "Asset array; each element is one asset record",
 				"items": obj(map[string]any{
 					"type": map[string]any{
 						"type":        "string",
 						"enum":        []string{"root_domain", "ip", "subdomain", "app", "service", "endpoint"},
-						"description": "资产类型",
+						"description": "Asset type",
 					},
 					// root_domain / subdomain
-					"domain":       str("根域名或子域名（root_domain/subdomain 必填）"),
-					"icp":          str("ICP 备案号（可选）"),
-					"record_type":  str("DNS 解析类型：A/AAAA/CNAME/MX 等（subdomain 可选）"),
+					"domain":      str("Root domain or subdomain (required for root_domain/subdomain)"),
+					"icp":         str("ICP filing number (optional)"),
+					"record_type": str("DNS record type: A/AAAA/CNAME/MX etc. (optional for subdomain)"),
 					"record_value": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "DNS 解析值列表（subdomain 可选，如 [\"1.2.3.4\",\"2.3.4.5\"]）",
+						"description": "DNS record value list (optional for subdomain, e.g. [\"1.2.3.4\",\"2.3.4.5\"])",
 					},
 					// ip
-					"ip":           str("IP 地址（ip 类型必填；service/endpoint 类型可填，用于关联 IP）"),
+					"ip": str("IP address (required for ip type; optional for service/endpoint, used to associate the IP)"),
 					"bound_domains": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "该 IP 绑定的域名列表（ip 类型可选）",
+						"description": "Domains bound to this IP (optional for ip type)",
 					},
 					"open_ports": map[string]any{
 						"type":        "array",
-						"description": "开放端口列表（ip 类型可选）",
+						"description": "Open port list (optional for ip type)",
 						"items": obj(map[string]any{
-							"port":    intp("端口号"),
-							"service": str("服务名称，如 http/ssh/mysql 等（可选）"),
+							"port":    intp("Port number"),
+							"service": str("Service name, e.g. http/ssh/mysql (optional)"),
 						}, "port"),
 					},
 					// app
-					"app_name":    str("应用名称（app 类型必填）"),
-					"bundle_id":   str("Bundle ID（app 类型可选）"),
-					"category":    str("应用分类（可选）"),
-					"description": str("应用描述（可选）"),
-					"app_icp":     str("应用 ICP 备案（可选）"),
-					"company_id":  intp("归属企业 id（app 类型可选；app 无法靠 scope 自动归因，需显式指定。id 由 add_company_scope 返回）"),
+					"app_name":    str("Application name (required for app type)"),
+					"bundle_id":   str("Bundle ID (optional for app type)"),
+					"category":    str("Application category (optional)"),
+					"description": str("Application description (optional)"),
+					"app_icp":     str("Application ICP filing (optional)"),
+					"company_id":  intp("Owning company id (optional for app type; apps cannot be auto-attributed by scope and must be given explicitly. id is returned by add_company_scope)"),
 					// service (http)
-					"url":           str("完整 URL，含协议和端口（HTTP 服务必填；service_type 自动设为 http）"),
-					"status_code":   intp("HTTP 响应状态码，如 200/301/403/404（可选）"),
+					"url":         str("Full URL including scheme and port (required for HTTP services; service_type is set to http automatically)"),
+					"status_code": intp("HTTP response status code, e.g. 200/301/403/404 (optional)"),
 					"content_length": map[string]any{
 						"type":        "integer",
-						"description": "HTTP 响应体字节数（可选）",
+						"description": "HTTP response body size in bytes (optional)",
 					},
-					"page_title":   str("页面 <title> 内容（可选）"),
-					"favicon_mmh3": str("favicon MMH3 哈希（可选）"),
+					"page_title":   str("Page <title> content (optional)"),
+					"favicon_mmh3": str("favicon MMH3 hash (optional)"),
 					"technologies": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
-						"description": "指纹/技术栈列表，如 [\"Nginx\",\"Vue\",\"Bootstrap\"]（可选）",
+						"description": "Fingerprint/tech-stack list, e.g. [\"Nginx\",\"Vue\",\"Bootstrap\"] (optional)",
 					},
 					"auth": map[string]any{
 						"type":        "array",
-						"description": "发现的认证信息列表，每条含 type/username/password 等字段（可选，追加不覆盖）",
+						"description": "Discovered credentials list; each entry contains type/username/password etc. (optional; appended, never overwritten)",
 						"items":       map[string]any{"type": "object"},
 					},
-					// service (other，非 HTTP)
-					"service_name": str("服务名称，如 ssh/mysql/redis（service 非 HTTP 时必填）"),
-					"port":         intp("端口号（service 非 HTTP 时必填）"),
+					// service (other, non-HTTP)
+					"service_name": str("Service name, e.g. ssh/mysql/redis (required for non-HTTP services)"),
+					"port":         intp("Port number (required for non-HTTP services)"),
 					// endpoint
-					"method": str("HTTP 方法：GET/POST/PUT/PATCH/DELETE 等（endpoint 必填）"),
+					"method": str("HTTP method: GET/POST/PUT/PATCH/DELETE etc. (required for endpoint)"),
 					"params": map[string]any{
 						"type":        "array",
-						"description": "请求参数列表，每条含 location(query/body/header/path)/name/value/type（可选，追加不覆盖）",
+						"description": "Request parameter list; each entry contains location(query/body/header/path)/name/value/type (optional; appended, never overwritten)",
 						"items":       map[string]any{"type": "object"},
 					},
 				}, "type"),
@@ -158,7 +158,7 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 		}, "assets"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {
-				return actool.Errorf("insert_assets 未启用: AssetStore 未初始化"), nil
+				return actool.Errorf("insert_assets unavailable: AssetStore not initialized"), nil
 			}
 			var a struct {
 				Assets []assetInputItem `json:"assets"`
@@ -292,20 +292,20 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 func (t *ToolSet) addCompanyScope() actool.CoreTool {
 	return writeTool(
 		"add_company_scope",
-		"把根域名/IP/IP段(CIDR)加入某公司的【资产范围】——加入后系统自动认领所有命中的资产(现有+未来)。\n"+
-			"公司名唯一：company 不存在则新建，已存在则复用(只把范围并进去)。\n"+
-			"scope 一行一条，支持：根域名 / 单个 IP / CIDR 网段(如 1.2.3.0/24)。\n"+
-			"务必给 reason 说明归属依据(whois/证书/ASN 等)。\n"+
-			"护栏：拒绝裸 TLD 与过宽网段(IPv4<=/16、IPv6<=/32)，非法行会被跳过并在 errors 返回。",
+		"Add root domains/IPs/CIDR blocks to a company's [asset scope] — once added, the system auto-claims every matching asset (existing and future).\n"+
+			"Company names are unique: a non-existent company is created; an existing one is reused (the scope is just merged in).\n"+
+			"One scope entry per line, supporting: root domain / single IP / CIDR block (e.g. 1.2.3.0/24).\n"+
+			"Always provide reason stating the attribution basis (whois/certificate/ASN etc.).\n"+
+			"Guardrails: bare TLDs and overly wide ranges (IPv4<=/16, IPv6<=/32) are rejected; invalid lines are skipped and returned in errors.",
 		obj(map[string]any{
-			"company": str("公司名(不存在则新建、存在则复用；名称唯一)"),
-			"scope":   str("资产范围，一行一条：根域名 / IP / CIDR"),
-			"reason":  str("归属依据(证据/来源)，务必填写"),
-			"logo":    str("公司图标 URL(可选；仅新建公司时生效)"),
+			"company": str("Company name (created if absent, reused if present; names are unique)"),
+			"scope":   str("Asset scope, one entry per line: root domain / IP / CIDR"),
+			"reason":  str("Attribution basis (evidence/source); always fill this in"),
+			"logo":    str("Company logo URL (optional; only applied when creating a new company)"),
 		}, "company", "scope"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.cs == nil {
-				return actool.Errorf("add_company_scope 未启用: CompanyStore 未初始化"), nil
+				return actool.Errorf("add_company_scope unavailable: CompanyStore not initialized"), nil
 			}
 			var a struct {
 				Company string `json:"company"`
@@ -317,11 +317,11 @@ func (t *ToolSet) addCompanyScope() actool.CoreTool {
 				return actool.Errorf(err.Error()), nil
 			}
 			if strings.TrimSpace(a.Company) == "" {
-				return actool.Errorf("company 不能为空"), nil
+				return actool.Errorf("company must not be empty"), nil
 			}
 			companyID, _, err := t.cs.UpsertCompany(a.Company, a.Logo)
 			if err != nil {
-				return actool.Errorf("创建/获取公司失败: " + err.Error()), nil
+				return actool.Errorf("failed to create/get company: " + err.Error()), nil
 			}
 			lines := splitLines(a.Scope)
 			added, skipped, invalid, errMsgs := t.cs.AddScope(companyID, lines, a.Reason)
@@ -343,43 +343,43 @@ func (t *ToolSet) addCompanyScope() actool.CoreTool {
 func (t *ToolSet) listAssets() actool.CoreTool {
 	return readTool(
 		"list_assets",
-		"查询资产库。支持 DSL 表达式搜索、按 id/ids 直接取，分页。\n"+
-			"DSL 语法：field=value 模糊(ILIKE) | field==value 精确 | field!=value 排除 | port>80 数字比较 | 裸词=全文模糊。\n"+
-			"逻辑运算：AND / OR（关键字，AND 优先级高于 OR），括号分组。\n"+
-			"资产类型用独立的 type 参数过滤，DSL 里不含 type 字段。\n"+
-			"约束：未传 id/ids 时 dsl 必须非空——不允许无条件查询全部资产，必须带查询条件。\n"+
-			"字段一览：\n"+
-			"  domain      域名（根域名/子域名/服务域名）\n"+
-			"  root_domain 根域名（仅子域名/服务资产有）\n"+
-			"  ip          IPv4/IPv6 地址\n"+
-			"  url         完整 URL（服务/接口）\n"+
-			"  page_title  页面标题（HTTP 服务）\n"+
-			"  icp         ICP 备案号（根域名）\n"+
-			"  service_name 服务名称（非 HTTP 服务）\n"+
-			"  app_name    应用名称（app 类型）\n"+
-			"  method      HTTP 方法（接口类型，如 GET/POST）\n"+
-			"  service_type HTTP 服务类型：http|other\n"+
-			"  record_type DNS 解析类型（子域名，如 A/CNAME）\n"+
-			"  technology  指纹/技术栈（数组字段，= 模糊 == 精确）\n"+
-			"  port        端口号（整数，支持 > >= < <=）\n"+
-			"  status_code HTTP 状态码（整数，支持 > >= < <=）\n"+
-			"  company_id  归属企业 id（整数）\n"+
-			"  task_id     来源任务 id（整数）\n"+
-			"示例：status_code>=400 AND technology=shiro\n"+
+		"Query the asset store. Supports DSL expression search, direct fetch by id/ids, pagination.\n"+
+			"DSL syntax: field=value fuzzy (ILIKE) | field==value exact | field!=value exclude | port>80 numeric comparison | bare term = full-text fuzzy.\n"+
+			"Logical operators: AND / OR (keywords; AND binds tighter than OR), parentheses for grouping.\n"+
+			"Asset type is filtered via the separate type parameter; the DSL has no type field.\n"+
+			"Constraint: when no id/ids is given, dsl must be non-empty — unconditional queries of all assets are not allowed; a query condition is required.\n"+
+			"Field overview:\n"+
+			"  domain      domain name (root domain/subdomain/service domain)\n"+
+			"  root_domain root domain (only on subdomain/service assets)\n"+
+			"  ip          IPv4/IPv6 address\n"+
+			"  url         full URL (service/endpoint)\n"+
+			"  page_title  page title (HTTP service)\n"+
+			"  icp         ICP filing number (root domain)\n"+
+			"  service_name service name (non-HTTP service)\n"+
+			"  app_name    application name (app type)\n"+
+			"  method      HTTP method (endpoint type, e.g. GET/POST)\n"+
+			"  service_type HTTP service type: http|other\n"+
+			"  record_type DNS record type (subdomain, e.g. A/CNAME)\n"+
+			"  technology  fingerprint/tech stack (array field; = fuzzy, == exact)\n"+
+			"  port        port number (integer; supports > >= < <=)\n"+
+			"  status_code HTTP status code (integer; supports > >= < <=)\n"+
+			"  company_id  owning company id (integer)\n"+
+			"  task_id     source task id (integer)\n"+
+			"Examples: status_code>=400 AND technology=shiro\n"+
 			"      method==POST AND url=/api/admin\n"+
 			"      icp=京 OR icp=沪\n"+
 			"      (port==80 OR port==443) AND technology=nginx",
 		obj(map[string]any{
-			"dsl":    str(`DSL 查询表达式，参见工具描述。未传 id/ids 时必须非空。例：status_code>=400 technology=shiro / method==POST url=/api/admin`),
-			"type":   str("资产类型过滤：root_domain|ip|subdomain|app|service|endpoint（独立字段，可与 dsl 叠加；单独 type 不足以查询，仍需 dsl）"),
-			"id":     intp("直接按单个资产 id 取（可选，与 dsl/type 互斥）"),
-			"ids":    map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "直接按多个资产 id 取（可选，与 dsl/type 互斥）"},
-			"limit":  intp("返回上限，默认 10（可选）"),
-			"offset": intp("分页偏移，默认 0（可选）"),
+			"dsl":    str(`DSL query expression; see the tool description. Must be non-empty when no id/ids is given. E.g.: status_code>=400 technology=shiro / method==POST url=/api/admin`),
+			"type":   str("Asset type filter: root_domain|ip|subdomain|app|service|endpoint (a separate field, combinable with dsl; type alone is not enough — dsl is still required)"),
+			"id":     intp("Fetch directly by a single asset id (optional; mutually exclusive with dsl/type)"),
+			"ids":    map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "Fetch directly by multiple asset ids (optional; mutually exclusive with dsl/type)"},
+			"limit":  intp("Return limit, default 10 (optional)"),
+			"offset": intp("Pagination offset, default 0 (optional)"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {
-				return actool.Errorf("list_assets 未启用: AssetStore 未初始化"), nil
+				return actool.Errorf("list_assets unavailable: AssetStore not initialized"), nil
 			}
 			var a struct {
 				DSL    string  `json:"dsl"`
@@ -404,10 +404,10 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 			case a.DSL != "":
 				assets, err = t.as.QueryDSL(a.DSL, a.Type, a.Limit, a.Offset)
 			default:
-				return actool.Errorf("未传 id/ids 时 dsl 不能为空：不允许无条件查询全部资产，请提供查询条件"), nil
+				return actool.Errorf("dsl must not be empty when no id/ids is given: unconditional queries of all assets are not allowed; provide a query condition"), nil
 			}
 			if err != nil {
-				return actool.Errorf("DSL 错误: " + err.Error()), nil
+				return actool.Errorf("DSL error: " + err.Error()), nil
 			}
 			return jsonResult(map[string]any{
 				"count":  len(assets),
@@ -421,15 +421,15 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 func (t *ToolSet) listCompanies() actool.CoreTool {
 	return readTool(
 		"list_companies",
-		"列出资产库中的【企业/公司】及其资产范围(scope)与已归属资产数。用于查看有哪些公司、"+
-			"拿到 company_id（insert_assets 关联 app、list_assets 按 company_id 过滤时用）。"+
-			"可选 search 按公司名模糊过滤(不区分大小写)，留空返回全部。",
+		"List the [companies] in the asset store with their asset scopes and attributed asset counts. Use it to see which companies exist and "+
+			"obtain company_id (used when insert_assets associates an app, or list_assets filters by company_id)."+
+			"Optional search filters companies by name (fuzzy, case-insensitive); leave empty to return all.",
 		obj(map[string]any{
-			"search": str("按公司名模糊过滤(可选，不区分大小写)；留空返回全部"),
+			"search": str("Filter by company name (optional, fuzzy, case-insensitive); leave empty to return all"),
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.cs == nil {
-				return actool.Errorf("list_companies 未启用: CompanyStore 未初始化"), nil
+				return actool.Errorf("list_companies unavailable: CompanyStore not initialized"), nil
 			}
 			var a struct {
 				Search string `json:"search"`
@@ -437,7 +437,7 @@ func (t *ToolSet) listCompanies() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			cos, err := t.cs.ListCompanies()
 			if err != nil {
-				return actool.Errorf("查询公司失败: " + err.Error()), nil
+				return actool.Errorf("failed to query companies: " + err.Error()), nil
 			}
 			q := strings.ToLower(strings.TrimSpace(a.Search))
 			type companyOut struct {

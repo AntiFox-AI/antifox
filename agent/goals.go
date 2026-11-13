@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"strings"
 
+	"antifox/db"
 	"antifox/engine/agentcore"
 	acperm "antifox/engine/permission"
 	actool "antifox/engine/tool"
-	"antifox/db"
 )
 
 // goalsDefaultTmpl is the built-in EDITABLE body (段 [A]) of the goals-decomposer
@@ -59,12 +59,12 @@ func DecomposeGoals(ctx context.Context, c Config, goalText, desc string, emit f
 	captured := false
 	submitTool := actool.Build(actool.Spec{
 		Name:        "set_goals",
-		Description: "提交拆分后的目标列表。",
+		Description: "Submit the decomposed goal list.",
 		Schema: map[string]any{"type": "object", "properties": map[string]any{
 			"goals": map[string]any{"type": "array", "items": map[string]any{
 				"type": "object", "properties": map[string]any{
-					"text":      map[string]any{"type": "string", "description": "一个独立可验证的目标"},
-					"vulnclass": map[string]any{"type": "string", "description": "对应漏洞类(若明确)，如 SQLi/IDOR；业务逻辑目标可留空"},
+					"text":      map[string]any{"type": "string", "description": "One independently verifiable goal"},
+					"vulnclass": map[string]any{"type": "string", "description": "Vulnerability class when clearly applicable, e.g. SQLi/IDOR; leave empty for business-logic goals"},
 				}, "required": []string{"text"},
 			}},
 		}, "required": []string{"goals"}},
@@ -79,9 +79,9 @@ func DecomposeGoals(ctx context.Context, c Config, goalText, desc string, emit f
 	// {{.EngagementDescription}} template var — else a prompt that references the var
 	// would inject the description twice. System prompt stays pure static instructions.
 	sys := renderSystem("goals", goalsDefaultTmpl, GoalsVars{})
-	userMsg := "任务目标：\n" + goalText
+	userMsg := "Task goal:\n" + goalText
 	if d := strings.TrimSpace(desc); d != "" {
-		userMsg += "\n\n任务描述（背景信息，可能含靶标范围/flag 数量/交战说明；仅供参考，不要臆造其中未提及的内容）：\n" + d
+		userMsg += "\n\nTask description (background information; may include target scope / flag count / engagement notes. For reference only — do not invent anything not stated in it):\n" + d
 	}
 	// Use captureRun so every LLM step is emitted as an activity record (visible in
 	// the plan tab under the round-0 marker). Falls back gracefully when emit is nil.

@@ -44,7 +44,7 @@ import { taskLabel } from "@/lib/task-label";
 import type { Task, TrafficExchange, TrafficResp, TrafficDetail } from "@/lib/types";
 
 function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN", {
+  return new Date(ts).toLocaleString("en-US", {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

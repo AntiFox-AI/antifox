@@ -7,7 +7,7 @@ export const APP_CONFIG = {
   version: packageJson.version,
   copyright: `© ${currentYear}, AntiFox.`,
   meta: {
-    title: "AntiFox — 自主渗透测试控制台",
-    description: "AI 驱动的自主渗透测试平台",
+    title: "AntiFox — Autonomous Pentest Console",
+    description: "AI-driven autonomous penetration testing platform",
   },
 };

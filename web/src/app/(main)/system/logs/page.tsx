@@ -43,7 +43,7 @@ function fmtTime(ts: string) {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return "";
   // 显示完整日期+时间（登录日志等需按日期区分，仅时间会误导）。
-  return d.toLocaleString("zh-CN", {
+  return d.toLocaleString("en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

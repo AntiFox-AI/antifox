@@ -13,7 +13,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 function fmtTime(s: string) {
   if (!s) return "—";
-  return new Date(s).toLocaleString("zh-CN", {
+  return new Date(s).toLocaleString("en-US", {
     month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });

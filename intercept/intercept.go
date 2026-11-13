@@ -321,9 +321,9 @@ func ruleMatches(r compiledRule, toolName string, input []byte) bool {
 func defaultMessage(action, name string) string {
 	switch action {
 	case "deny":
-		return "拦截规则 [" + name + "] 禁止执行此工具"
+		return "Intercept rule [" + name + "] blocks this tool"
 	case "ask":
-		return "拦截规则 [" + name + "] 要求用户审批，请等待"
+		return "Intercept rule [" + name + "] requires user approval — wait for the decision"
 	default:
 		return ""
 	}
@@ -354,7 +354,7 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 	})
 	activity := db.Activity{
 		Kind:    "intercept_request",
-		Summary: fmt.Sprintf("工具 %s 请求审批 (#%d)", toolName, pendingID),
+		Summary: fmt.Sprintf("Tool %s requests approval (#%d)", toolName, pendingID),
 		Detail:  string(detail),
 	}
 

@@ -606,7 +606,7 @@ function ConversationItem({
             <Bot className="size-3 shrink-0" />
             <span className="min-w-0 truncate">{agent?.name ?? conv.agent_key}</span>
             <span className="shrink-0">·</span>
-            <span className="shrink-0">{new Date(conv.created_at).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            <span className="shrink-0">{new Date(conv.created_at).toLocaleDateString("en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
             <span className="shrink-0 opacity-60">#{conv.id}</span>
           </div>
         </button>

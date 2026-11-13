@@ -449,7 +449,7 @@ function NodeDetailSheet({
                   <DetailRow label={t("taskDetail.graph.sheet.origin")}>
                     <span className="font-mono text-xs">{node.origin}</span>
                   </DetailRow>
-                  <DetailRow label={t("taskDetail.graph.sheet.time")}>{new Date(node.ts).toLocaleString("zh-CN")}</DetailRow>
+                  <DetailRow label={t("taskDetail.graph.sheet.time")}>{new Date(node.ts).toLocaleString("en-US")}</DetailRow>
                 </section>
 
                 <section className="border-t pt-3">

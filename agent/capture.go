@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
+	"antifox/db"
 	"antifox/engine/agentcore"
 	"antifox/engine/harness"
 	"antifox/engine/llm"
-	"antifox/db"
 )
 
 // captureRun drives one agent turn-to-completion over Session.Prompt and emits a
@@ -70,10 +70,10 @@ func captureRunSession(ctx context.Context, s *agentcore.Session, input string, 
 		if err != nil {
 			flush()
 			if ctx.Err() != nil { // ctx cancelled = manual stop, not a failure
-				rec(db.Activity{Kind: "result", Summary: "（已手动停止本次运行）"})
+				rec(db.Activity{Kind: "result", Summary: "(run manually stopped)"})
 				return finalText, reason, ctx.Err()
 			}
-			rec(db.Activity{Kind: "result", IsError: true, Summary: "执行出错: " + err.Error(), Detail: err.Error()})
+			rec(db.Activity{Kind: "result", IsError: true, Summary: "execution error: " + err.Error(), Detail: err.Error()})
 			return finalText, reason, err
 		}
 		switch ev.Kind {
@@ -127,13 +127,13 @@ func captureRunSession(ctx context.Context, s *agentcore.Session, input string, 
 						// interruption (task paused / worker killed / backend restart),
 						// not a real completion — the intent is re-queued (open) or
 						// stopped, so the session icon reflects that, not this run.
-						sum = "（运行被中断：任务暂停 / 终止 / 重启所致；未完成）"
+						sum = "(run interrupted: task paused / terminated / restarted; incomplete)"
 					case harness.ReasonTimeout, harness.ReasonMaxTurns:
 						// budget hit → settlement ran (facts/assets were written back);
 						// only the trailing text summary is missing, not a failure.
-						sum = "（达运行预算上限，已收尾写回事实；本次无文字总结，终态: " + string(ev.Terminal.Reason) + "）"
+						sum = "(run budget limit reached; settlement wrote back facts; no text summary this run, terminal state: " + string(ev.Terminal.Reason) + ")"
 					default:
-						sum = "（无总结，终态: " + string(ev.Terminal.Reason) + "）"
+						sum = "(no summary, terminal state: " + string(ev.Terminal.Reason) + ")"
 					}
 				}
 				u := ev.Terminal.Usage // cumulative token usage for this session
