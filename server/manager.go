@@ -109,9 +109,18 @@ func (m *Manager) Workers() int {
 // SetWorkers persists the concurrent work-agent count. Values <=0 are rejected.
 func (m *Manager) SetWorkers(n int) error {
 	if n <= 0 {
-		return fmt.Errorf("workers must be >0")
+		return fmt.Errorf("%s", m.lerr("workers must be >0", "workers 必须 >0"))
 	}
 	return m.pg.SetSetting(settingWorkers, strconv.Itoa(n))
+}
+
+// lerr is the Manager-side variant of Server.lerr: picks the user-facing message
+// language from the content_lang setting (English when en-US, Chinese otherwise).
+func (m *Manager) lerr(en, zh string) string {
+	if v, ok, err := m.pg.GetSetting(settingContentLang); err == nil && ok && v == "en-US" {
+		return en
+	}
+	return zh
 }
 
 // Enrich returns the asset auto-completion engine (may be nil if init failed).

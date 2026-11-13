@@ -80,7 +80,10 @@ func renderPlannerTodos(items []actool.Todo) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n\n[Your planning todos (persisted across wakes; you wrote these last round)]:\n")
+	b.WriteString(tr(
+		"\n\n【你的规划待办（跨唤醒保留，上一轮你写的）】：\n",
+		"\n\n[Your planning todos (persisted across wakes; you wrote these last round)]:\n",
+	))
 	for _, it := range items {
 		mark := map[actool.TodoStatus]string{actool.TodoPending: "☐", actool.TodoInProgress: "▶", actool.TodoCompleted: "✔"}[it.Status]
 		if mark == "" {
@@ -88,7 +91,10 @@ func renderPlannerTodos(items []actool.Todo) string {
 		}
 		b.WriteString(fmt.Sprintf("  %s %s\n", mark, it.Content))
 	}
-	b.WriteString("Proceed accordingly: dispatch intents only for next steps whose [prerequisites are completed / the facts they depend on already exist]; update the list with TodoWrite (mark steps satisfied by facts as completed). Do not re-dispatch steps already pending/in_progress on the list.")
+	b.WriteString(tr(
+		"据此推进：只对【前置步骤已完成 / 其依赖的 fact 已存在】的下一步派意图；用 TodoWrite 更新清单（把已被 fact 满足的步骤标 completed）。不要重复派已在清单里 pending/in_progress 的步骤。",
+		"Proceed accordingly: dispatch intents only for next steps whose [prerequisites are completed / the facts they depend on already exist]; update the list with TodoWrite (mark steps satisfied by facts as completed). Do not re-dispatch steps already pending/in_progress on the list.",
+	))
 	return b.String()
 }
 
@@ -103,7 +109,10 @@ func renderDoneIntents(ids []int64) string {
 	for i, id := range ids {
 		parts[i] = fmt.Sprintf("#%d", id)
 	}
-	return "\n\n[Just-completed intents that triggered this round]: " + strings.Join(parts, ", ")
+	return tr(
+		"\n\n【本次触发本轮的、刚完成的意图】：",
+		"\n\n[Just-completed intents that triggered this round]: ",
+	) + strings.Join(parts, tr("、", ", "))
 }
 
 // renderGraphOverview folds the pre-computed graph_overview snapshot into the
@@ -116,7 +125,10 @@ func renderGraphOverview(data map[string]any) string {
 	if err != nil {
 		return "" // fall back to the model calling graph_overview itself
 	}
-	return "\n\n[Situation this round (graph_overview pre-fetched; identical to calling that tool — call node_detail/list_facts etc. on demand for detail)]:\n" + string(b)
+	return tr(
+		"\n\n【本轮态势（graph_overview 预取，等同你调用该工具的返回；需要细节再按需调 node_detail/list_facts 等）】：\n",
+		"\n\n[Situation this round (graph_overview pre-fetched; identical to calling that tool — call node_detail/list_facts etc. on demand for detail)]:\n",
+	) + string(b)
 }
 
 // plannerDefaultTmpl is the built-in EDITABLE body (段 [A]) of the planner prompt,
@@ -199,7 +211,10 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	// planner 收尾词作为【本轮操作指令】直接注入 system,让它只做最后目标判定、不产新意图。
 	tc := taskClockFrom(ctx)
 	if tc.Final {
-		situational += "\n\n[Task final wrap-up (special instruction for this round; overrides the normal planning flow above)]: " + resolveTaskTimeoutWrapup("planner")
+		situational += tr(
+			"\n\n【任务终局收尾（本轮特殊指令，覆盖上面的常规规划流程）】：",
+			"\n\n[Task final wrap-up (special instruction for this round; overrides the normal planning flow above)]: ",
+		) + resolveTaskTimeoutWrapup("planner")
 	}
 	system, boundary := deferredSystem(plannerSystem(goal, p.workDir)+situational, def)
 	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在
@@ -244,7 +259,10 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	}
 	// 态势（刚完成的意图 + 完整图）已在上面拼进 system prompt（抗压缩、轮内常驻）。这里
 	// 的 user 输入只留指令 + 跨唤醒待办（todo 是模型自己的规划便签，可再生，放 user 即可）。
-	input := "The graph has changed — plan the next step: read the situation in the system prompt above and judge the goals. **If there is no uncovered new direction this round, just end the round (producing 0 intents is normal and common, especially right after dispatching intents while waiting for worker output). NEVER call goal_met just to \"end this round\" — goal_met [immediately ends the ENTIRE task]; call it only when you are certain the goal has [truly been achieved] (target results obtained / target vulnerabilities confirmed). If not achieved, mark goals one by one with prove_goal, or simply end the round without calling anything.**" +
+	input := tr(
+		"图发生了变化，请规划下一步：读取上方 system 里的态势，判定目标。**本轮若无未被覆盖的新方向，直接结束即可（生成 0 个意图是正常且常见的，尤其刚派完意图在等 worker 产出时）。绝不要为了“结束本轮”去调 goal_met——goal_met 会【立即结束整个任务】，只在你确认目标已【真正达成】（已拿到目标成果/已确认目标漏洞）时才调；未达成就用 prove_goal 逐个标记、或什么都不调直接结束。**",
+		"The graph has changed — plan the next step: read the situation in the system prompt above and judge the goals. **If there is no uncovered new direction this round, just end the round (producing 0 intents is normal and common, especially right after dispatching intents while waiting for worker output). NEVER call goal_met just to \"end this round\" — goal_met [immediately ends the ENTIRE task]; call it only when you are certain the goal has [truly been achieved] (target results obtained / target vulnerabilities confirmed). If not achieved, mark goals one by one with prove_goal, or simply end the round without calling anything.**",
+	) +
 		renderPlannerTodos(opts.Todos.List())
 	// 有 deadline 夹逼时加硬 ctx 兜底(软预算 + grace),防单轮卡死绕过轮边界软超时。
 	runCtx := ctx

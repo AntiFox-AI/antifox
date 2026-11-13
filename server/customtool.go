@@ -54,23 +54,23 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Key = strings.TrimSpace(req.Key)
 	if !reToolKey.MatchString(req.Key) {
-		writeErr(w, 400, "key must start with a lowercase letter and contain only lowercase letters/digits/underscores")
+		s.writeErrL(w, 400, "key must start with a lowercase letter and contain only lowercase letters/digits/underscores", "key 需小写字母开头，仅含小写字母/数字/下划线")
 		return
 	}
 	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
-		writeErr(w, 400, "kind must be command / script / http / shell")
+		s.writeErrL(w, 400, "kind must be command / script / http / shell", "kind 需为 command / script / http / shell")
 		return
 	}
 	if hostExecToolKind(req.Kind) && !isAdmin(r) {
-		writeErr(w, 403, "only admins can create tools that execute commands/scripts on the host (command/script/shell)")
+		s.writeErrL(w, 403, "only admins can create tools that execute commands/scripts on the host (command/script/shell)", "仅管理员可创建可在宿主机执行命令/脚本的工具（command/script/shell）")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
-		writeErr(w, 400, "http tools must provide a parameter JSON Schema (cannot be empty)")
+		s.writeErrL(w, 400, "http tools must provide a parameter JSON Schema (cannot be empty)", "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
 	}
 	if exist, _ := pg.GetTool(req.Key); exist != nil {
-		writeErr(w, 409, "this key already exists (built-in or custom tool)")
+		s.writeErrL(w, 409, "this key already exists (built-in or custom tool)", "该 key 已存在(内置或自定义工具)")
 		return
 	}
 	if err := pg.CreateCustomTool(&db.Tool{
@@ -95,7 +95,7 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing == nil || existing.System {
-		writeErr(w, 400, "only custom tools can be edited")
+		s.writeErrL(w, 400, "only custom tools can be edited", "只能编辑自定义工具")
 		return
 	}
 	var req customToolReq
@@ -104,17 +104,17 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
-		writeErr(w, 400, "kind must be command / script / http / shell")
+		s.writeErrL(w, 400, "kind must be command / script / http / shell", "kind 需为 command / script / http / shell")
 		return
 	}
 	// 高危类型（宿主机执行）收归 admin：无论改前/改后是否为高危类型，都要求 admin，
 	// 防止 operator 把 http 工具改成 command，或改动一个已存在的 command 工具。
 	if (hostExecToolKind(req.Kind) || hostExecToolKind(existing.Kind)) && !isAdmin(r) {
-		writeErr(w, 403, "only admins can manage tools that execute commands/scripts on the host (command/script/shell)")
+		s.writeErrL(w, 403, "only admins can manage tools that execute commands/scripts on the host (command/script/shell)", "仅管理员可管理可在宿主机执行命令/脚本的工具（command/script/shell）")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
-		writeErr(w, 400, "http tools must provide a parameter JSON Schema (cannot be empty)")
+		s.writeErrL(w, 400, "http tools must provide a parameter JSON Schema (cannot be empty)", "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
 	}
 	if err := pg.UpdateCustomTool(&db.Tool{
@@ -160,12 +160,12 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 	}
 	var req testToolReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid request body")
+		s.writeErrL(w, 400, "invalid request body", "无效的请求体")
 		return
 	}
 	// 试运行与真实调用走同一执行器，command/script 会在宿主机跑命令——收归 admin。
 	if hostExecToolKind(req.Kind) && !isAdmin(r) {
-		writeErr(w, 403, "only admins can test-run command/script tools")
+		s.writeErrL(w, 403, "only admins can test-run command/script tools", "仅管理员可试运行 command/script 类型工具")
 		return
 	}
 	params := req.Params
@@ -184,10 +184,10 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 	case "http":
 		res, _ = s.runHTTPTool(ctx, req.Exec, params)
 	case "shell":
-		writeErr(w, 400, "shell-type tools are bash environment declarations with nothing to execute")
+		s.writeErrL(w, 400, "shell-type tools are bash environment declarations with nothing to execute", "shell 类型工具是 bash 环境声明，无可执行内容")
 		return
 	default:
-		writeErr(w, 400, "unknown tool kind: "+req.Kind)
+		s.writeErrL(w, 400, "unknown tool kind: "+req.Kind, "未知工具类型: "+req.Kind)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"output": res.Flatten(), "is_error": res.IsError})

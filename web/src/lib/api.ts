@@ -328,7 +328,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body?.error || `Upload failed (${r.status})`);
+    if (!r.ok) throw new Error(body?.error || i18n.t("common.uploadFailed", { status: r.status }));
     return body as KnowledgeDoc;
   },
   uploadReportLogo: async (file: File) => {
@@ -341,7 +341,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body?.error || `Upload failed (${r.status})`);
+    if (!r.ok) throw new Error(body?.error || i18n.t("common.uploadFailed", { status: r.status }));
     return body as { logo_path: string; url: string };
   },
   // ---- finding enrichment (漏洞管理深化) — keyed by exploration node_id ----
@@ -372,7 +372,7 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body?.error || `Upload failed (${r.status})`);
+    if (!r.ok) throw new Error(body?.error || i18n.t("common.uploadFailed", { status: r.status }));
     return body as FindingEvidenceItem;
   },
   findingEvidenceUpdate: (nodeId: string, eid: number, patch: { caption: string; step_index: number; sort_order: number }) =>

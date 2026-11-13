@@ -49,7 +49,7 @@ func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	req.AgentKey = strings.TrimSpace(req.AgentKey)
 	if req.AgentKey == "" {
-		writeErr(w, 400, "agent_key cannot be empty")
+		s.writeErrL(w, 400, "agent_key cannot be empty", "agent_key 不能为空")
 		return
 	}
 	a, err := pg.GetAgentByKey(req.AgentKey)
@@ -58,18 +58,18 @@ func (s *Server) pgCreateConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a == nil {
-		writeErr(w, 404, "agent not found")
+		s.writeErrL(w, 404, "agent not found", "agent 不存在")
 		return
 	}
 	if req.LLMProfileID != nil {
 		if _, ok := s.loadProfileConfig(*req.LLMProfileID); !ok {
-			writeErr(w, 400, "The specified LLM profile does not exist or has no API key set")
+			s.writeErrL(w, 400, "The specified LLM profile does not exist or has no API key set", "指定的 LLM 配置不存在或未设置 API Key")
 			return
 		}
 	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
-		title = "New conversation"
+		title = s.lerr("New conversation", "新对话")
 	}
 	c, err := pg.CreateConversation(req.AgentKey, title, req.LLMProfileID)
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *Server) pgUpdateConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.LLMProfileID != nil {
 		if _, ok := s.loadProfileConfig(*req.LLMProfileID); !ok {
-			writeErr(w, 400, "The specified LLM profile does not exist or has no API key set")
+			s.writeErrL(w, 400, "The specified LLM profile does not exist or has no API key set", "指定的 LLM 配置不存在或未设置 API Key")
 			return
 		}
 	}
@@ -112,7 +112,7 @@ func (s *Server) convByID(w http.ResponseWriter, r *http.Request) (*db.DB, *db.C
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad conversation id")
+		s.writeErrL(w, 400, "bad conversation id", "无效的会话 id")
 		return nil, nil, false
 	}
 	c, err := pg.GetConversation(id)
@@ -121,7 +121,7 @@ func (s *Server) convByID(w http.ResponseWriter, r *http.Request) (*db.DB, *db.C
 		return nil, nil, false
 	}
 	if c == nil {
-		writeErr(w, 404, "conversation not found")
+		s.writeErrL(w, 404, "conversation not found", "会话不存在")
 		return nil, nil, false
 	}
 	return pg, c, true
@@ -139,7 +139,7 @@ func (s *Server) pgRenameConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
-		writeErr(w, 400, "Title cannot be empty")
+		s.writeErrL(w, 400, "Title cannot be empty", "标题不能为空")
 		return
 	}
 	if err := pg.RenameConversation(c.ID, title); err != nil {
@@ -191,7 +191,7 @@ func (s *Server) pgConversationMsgDetail(w http.ResponseWriter, r *http.Request)
 	}
 	seq, ok := pathInt(r, "seq")
 	if !ok {
-		writeErr(w, 400, "bad seq")
+		s.writeErrL(w, 400, "bad seq", "无效的 seq")
 		return
 	}
 	detail, err := pg.ConvActivityDetail(c.ID, seq)
@@ -237,12 +237,12 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 	}
 	msg := strings.TrimSpace(req.Message)
 	if msg == "" {
-		writeErr(w, 400, "Message cannot be empty")
+		s.writeErrL(w, 400, "Message cannot be empty", "消息不能为空")
 		return
 	}
 	ca := s.chatAgentRef()
 	if ca == nil {
-		writeErr(w, 503, "LLM not configured; chat unavailable")
+		s.writeErrL(w, 503, "LLM not configured; chat unavailable", "LLM 未配置，无法对话")
 		return
 	}
 
@@ -250,7 +250,7 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 	s.chatMu.Lock()
 	if s.chatBusy[busyKey] {
 		s.chatMu.Unlock()
-		writeErr(w, 409, "This conversation is still processing a previous message; please wait")
+		s.writeErrL(w, 409, "This conversation is still processing a previous message; please wait", "该会话正在处理上一条消息，请稍候")
 		return
 	}
 	s.chatBusy[busyKey] = true
@@ -262,7 +262,7 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 	if _, err := pg.AppendConvActivity(c.ID, db.Activity{Worker: c.AgentKey, Kind: "user", Summary: firstLine(msg, 200), Detail: msg}); err != nil {
 		log.Printf("[conv %d] append user msg failed: %v", c.ID, err)
 	}
-	if c.Title == "" || c.Title == "New conversation" {
+	if c.Title == "" || c.Title == "New conversation" || c.Title == "新对话" {
 		_ = pg.RenameConversation(c.ID, firstLine(msg, 40))
 	}
 	_ = pg.TouchConversation(c.ID)

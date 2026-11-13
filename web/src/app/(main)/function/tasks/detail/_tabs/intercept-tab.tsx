@@ -11,9 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+import { dateLocale } from "@/lib/locale";
 function fmtTime(s: string) {
   if (!s) return "—";
-  return new Date(s).toLocaleString("en-US", {
+  return new Date(s).toLocaleString(dateLocale(), {
     month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });

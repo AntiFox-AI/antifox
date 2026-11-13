@@ -45,6 +45,7 @@ import { toneClasses, type Tone } from "@/lib/status";
 import { api } from "@/lib/api";
 import type { Edge, ExploreKind, TaskNode } from "@/lib/types";
 
+import { dateLocale } from "@/lib/locale";
 // Edge relation kinds, in legend display order. Human labels are resolved via
 // t(`taskDetail.graph.rel.<rel>`) at render time.
 const REL_KINDS = ["spawns", "derived_from", "yields", "proves"] as const;
@@ -449,7 +450,7 @@ function NodeDetailSheet({
                   <DetailRow label={t("taskDetail.graph.sheet.origin")}>
                     <span className="font-mono text-xs">{node.origin}</span>
                   </DetailRow>
-                  <DetailRow label={t("taskDetail.graph.sheet.time")}>{new Date(node.ts).toLocaleString("en-US")}</DetailRow>
+                  <DetailRow label={t("taskDetail.graph.sheet.time")}>{new Date(node.ts).toLocaleString(dateLocale())}</DetailRow>
                 </section>
 
                 <section className="border-t pt-3">

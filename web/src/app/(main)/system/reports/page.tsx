@@ -28,6 +28,7 @@ import { api } from "@/lib/api";
 import type { Finding, Personnel, ReportRecord, ReportSettings, ReportTemplate, Task } from "@/lib/types";
 import { taskLabel, taskMap } from "@/lib/task-label";
 
+import { dateLocale } from "@/lib/locale";
 function localeName(t: TFunction, locale: string): string {
   if (locale === "zh-TW") return t("reports.langZhTW");
   if (locale === "en-US") return t("reports.langEnUS");
@@ -58,7 +59,7 @@ function fmtSize(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("en-US");
+  return new Date(ts).toLocaleString(dateLocale());
 }
 
 export default function ReportsPage() {

@@ -202,6 +202,7 @@
     "createdAt": "建立時間",
     "updatedAt": "更新時間",
     "unauthorized": "未授權",
+    "untitledTask": "未命名任務",
     "uploadFailed": "上傳失敗（{{status}}）",
     "pagination": {
       "perPage": "筆/頁",
@@ -1944,5 +1945,29 @@
     "format": "報告格式",
     "formatDocx": "Word 文件 (.docx)",
     "formatMd": "Markdown 交付包 (.zip：md+截圖)"
+  },
+  "sessions": {
+    "role": {
+      "mainagent": "主 Agent",
+      "planner": "規劃 Planner",
+      "worker": "Workers"
+    },
+    "mainTitle": "主 Agent · 編排會話",
+    "plannerTitle": "規劃 Planner · 態勢研判",
+    "workerTitle": "Worker 執行會話",
+    "live": "即時",
+    "listTitle": "會話列表",
+    "noWorkers": "暫無執行中的 Worker 會話。",
+    "totalTokensTip": "整個任務所有 agent 的 token 合計",
+    "taskTotal": "任務總計 · input {{input}} · cache {{cache}} · output {{output}}",
+    "tokensSummary": "input {{input}} · cache {{cache}} · output {{output}}",
+    "durationTip": "執行時長（首步 → 末步）",
+    "stopRun": "停止目前執行",
+    "interactive": "可互動",
+    "loadingStream": "載入活動流…",
+    "emptyMain": "還沒有對話。在下方給主 Agent 發消息，引導探索方向或介入流程。",
+    "emptyOther": "暫無活動記錄。",
+    "inputPlaceholder": "給主 Agent 發消息，引導探索方向…",
+    "sendFailed": "（發送失敗，請稍後重試）"
   }
 }

@@ -74,8 +74,13 @@ const settleHardGrace = 90 * time.Second
 
 // settleWrapUpPrompt is injected by the SDK settlement phase when a worker hits its
 // turn/time budget: stop probing, write back what was found, then end with a
-// plain-text one-liner (which becomes this run's displayed result).
-const settleWrapUpPrompt = "You are about to be terminated because your budget is exhausted. Do not run any more commands/probes. Do the following, in order: (1) write back everything you identified above but have not yet persisted — new assets with insert_assets, exploration conclusions/facts with record_fact, confirmed vulnerabilities with report_finding; (2) **finally, as a standalone one-sentence plain-text line**, summarize what you did and the key conclusions you reached (this line is shown as this run's result — you must output it)."
+// plain-text one-liner (which becomes this run's displayed result). Dual-language.
+func settleWrapUpPrompt() string {
+	return tr(
+		"你即将因预算耗尽被终止。不要再运行任何命令/探测。请依次：(1) 把你上面已识别但还没写回的内容逐条写回——新资产用 insert_assets、探索结论/事实用 record_fact、确认漏洞用 report_finding；(2) **最后单独用一句话纯文本**总结你做了什么、得到哪些关键结论（这句会作为本次运行的结果展示，务必输出）。",
+		"You are about to be terminated because your budget is exhausted. Do not run any more commands/probes. Do the following, in order: (1) write back everything you identified above but have not yet persisted — new assets with insert_assets, exploration conclusions/facts with record_fact, confirmed vulnerabilities with report_finding; (2) **finally, as a standalone one-sentence plain-text line**, summarize what you did and the key conclusions you reached (this line is shown as this run's result — you must output it).",
+	)
+}
 
 // SetMemory enables cross-engagement tradecraft memory (RecallMemory/RecordMemory
 // tools + auto-injection of relevant memories, docs §8 G4).
@@ -158,30 +163,44 @@ func workerTrafficBlock(proxyAddr string) string {
 	if proxyAddr == "" {
 		return ""
 	}
-	return "\n\n**Traffic tools**:\n- traffic_search / traffic_get: the target's traffic has been fully recorded and persisted by the recording proxy (local file tree data/traffic/<host>/<visited path>/). To review responses or find already-visited resources, **check the traffic first — do not curl the same URL again**. traffic_search **requires a host** and by default returns only 3 lightweight index entries (id/method/url/status/resp_len, no response body); raise limit explicitly if you need more; use traffic_get(id) to view a record's full content."
+	return tr(
+		"\n\n**流量工具**：\n- traffic_search / traffic_get：目标流量已被记录代理全量落库（本地文件树 data/traffic/<host>/<访问路径>/）。回看响应、找已访问过的资源，**先查流量、不要重复 curl 同一 URL**。traffic_search **必须指定 host**、默认只回 3 条极轻量索引(id/method/url/status/resp_len，无响应内容)，需要更多显式调大 limit；要看某条原文用 traffic_get(id)。",
+		"\n\n**Traffic tools**:\n- traffic_search / traffic_get: the target's traffic has been fully recorded and persisted by the recording proxy (local file tree data/traffic/<host>/<visited path>/). To review responses or find already-visited resources, **check the traffic first — do not curl the same URL again**. traffic_search **requires a host** and by default returns only 3 lightweight index entries (id/method/url/status/resp_len, no response body); raise limit explicitly if you need more; use traffic_get(id) to view a record's full content.",
+	)
 }
 
 // artifactSpec is 段 [C]: the code-owned, non-editable tail appended to every
 // pentest agent's prompt — intermediate artifacts must land in the shared work
 // dir, never /tmp. Guaranteed present regardless of how the DB body is edited.
 func artifactSpec(workDir string) string {
-	return "\n\n**Intermediate artifact output rules**: ALL intermediate artifacts — scripts, payloads, captured response bodies, temporary data, everything — **must be written into the shared working directory " + workDir + "** (this is the CWD shared by all agents; relative paths land there, and you may also use the absolute path) — **do not write to /tmp and do not use other absolute paths**."
+	return tr(
+		"\n\n**中间产物输出规约**：脚本、payload、抓到的响应体、临时数据等一切中间产物，**一律写到共享工作目录 "+workDir+"**（这是所有 agent 共用的 CWD，相对路径即写在这里，也可用该绝对路径）——**不要写 /tmp、不要用其它绝对路径**。",
+		"\n\n**Intermediate artifact output rules**: ALL intermediate artifacts — scripts, payloads, captured response bodies, temporary data, everything — **must be written into the shared working directory "+workDir+"** (this is the CWD shared by all agents; relative paths land there, and you may also use the absolute path) — **do not write to /tmp and do not use other absolute paths**.",
+	)
 }
 
 // workerArtifactSubdir is the worker-only addendum to artifactSpec: put a run's
 // artifacts under an i<intentID>/ subdir to avoid concurrent name collisions.
-const workerArtifactSubdir = "To avoid name collisions with other works, put this run's artifacts under an i<intent id>/ subdirectory (e.g. i123/exploit.py)."
+func workerArtifactSubdir() string {
+	return tr(
+		"为避免与其他 work 撞名，把本次产物放到子目录 i<意图id>/ 下（如 i123/exploit.py）。",
+		"To avoid name collisions with other works, put this run's artifacts under an i<intent id>/ subdirectory (e.g. i123/exploit.py).",
+	)
+}
 
 func workerSystem(proxyAddr, workDir string) string {
 	body := renderSystem("worker", workerDefaultTmpl, WorkerVars{ProxyAddr: proxyAddr})
-	return body + workerTrafficBlock(proxyAddr) + artifactSpec(workDir) + workerArtifactSubdir
+	return body + workerTrafficBlock(proxyAddr) + artifactSpec(workDir) + workerArtifactSubdir()
 }
 
 // renderIntentTask formats the claimed intent for the worker's SYSTEM prompt: the
 // intent is the worker's whole job, so — like the planner's situational block — it
 // belongs in system, where compaction can never drop it during a long run.
 func renderIntentTask(intent *db.Node) string {
-	return fmt.Sprintf("\n\n[Your claimed intent (your ONLY task this run: do just this one, produce only facts, stop when done)]:\n%s\nIntent id: %d (pass it when writing back via record_fact / report_finding)", string(intent.Payload), intent.ID)
+	if isEN() {
+		return fmt.Sprintf("\n\n[Your claimed intent (your ONLY task this run: do just this one, produce only facts, stop when done)]:\n%s\nIntent id: %d (pass it when writing back via record_fact / report_finding)", string(intent.Payload), intent.ID)
+	}
+	return fmt.Sprintf("\n\n【你领到的意图（本次唯一任务：只做这一条、只产生事实、做完即停）】：\n%s\n意图 id: %d（写回 record_fact / report_finding 时传它）", string(intent.Payload), intent.ID)
 }
 
 // renderWorkerGraphOverview folds the global situational snapshot into the worker's
@@ -194,9 +213,15 @@ func renderWorkerGraphOverview(data map[string]any) string {
 	if err != nil {
 		return "" // fall back silently: the worker just won't have the global context
 	}
-	return "\n\n[Global exploration situation (for your awareness of the big picture only — NOT your task list)]:\n" +
-		"Below is the current exploration overview of the whole task. Its **sole purpose** for you is to know the global picture, reuse existing conclusions, and avoid repeating what others already did.\n" +
-		"**It absolutely does not widen your responsibility boundary**: you still do only the one intent you claimed above. If you see other open intents / uncovered points / other attackable directions here, **never act on them yourself** — those belong to other workers and are dispatched by the planner. If you find a relevant new lead, at most write it into a fact so the planner knows; do not chase it yourself.\n" +
+	if isEN() {
+		return "\n\n[Global exploration situation (for your awareness of the big picture only — NOT your task list)]:\n" +
+			"Below is the current exploration overview of the whole task. Its **sole purpose** for you is to know the global picture, reuse existing conclusions, and avoid repeating what others already did.\n" +
+			"**It absolutely does not widen your responsibility boundary**: you still do only the one intent you claimed above. If you see other open intents / uncovered points / other attackable directions here, **never act on them yourself** — those belong to other workers and are dispatched by the planner. If you find a relevant new lead, at most write it into a fact so the planner knows; do not chase it yourself.\n" +
+			string(b)
+	}
+	return "\n\n【全局探索态势（仅供你了解大局，不是你的任务清单）】：\n" +
+		"下面是整个任务当前的探索概况。给你的**唯一目的**是让你了解全局动态、复用已有结论、避免重复别人已做过的事。\n" +
+		"**它绝不扩大你的职责边界**：你仍然只做上面领到的那一条意图。看到这里有别的 open 意图 / 未覆盖的点 / 其它可打方向，也**绝不要自己去动手**——那些是别的 worker 的事，由规划者调度。你若发现相关新线索，最多写进 fact 让规划者知道，不要自己追。\n" +
 		string(b)
 }
 
@@ -290,7 +315,10 @@ func (w *Worker) Execute(ctx context.Context, name string, taskID int64, as *db.
 		}
 	}
 	// 意图已在 system 里。user 输入只放启动指令。
-	input := "Start executing the intent from the system prompt: do only that, produce only facts, stop when done."
+	input := tr(
+		"开始执行 system 提示里的这条意图：只做它、只产生事实、做完即停。",
+		"Start executing the intent from the system prompt: do only that, produce only facts, stop when done.",
+	)
 
 	s := agentcore.NewSession(opts)
 	defer s.Close() // release the session's background-task manager (temp dir + processes)

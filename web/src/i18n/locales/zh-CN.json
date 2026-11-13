@@ -202,6 +202,7 @@
     "createdAt": "创建时间",
     "updatedAt": "更新时间",
     "unauthorized": "未授权",
+    "untitledTask": "未命名任务",
     "uploadFailed": "上传失败（{{status}}）",
     "pagination": {
       "perPage": "条/页",
@@ -1944,5 +1945,29 @@
     "format": "报告格式",
     "formatDocx": "Word 文档 (.docx)",
     "formatMd": "Markdown 交付包 (.zip：md+截图)"
+  },
+  "sessions": {
+    "role": {
+      "mainagent": "主 Agent",
+      "planner": "规划 Planner",
+      "worker": "Workers"
+    },
+    "mainTitle": "主 Agent · 编排会话",
+    "plannerTitle": "规划 Planner · 态势研判",
+    "workerTitle": "Worker 执行会话",
+    "live": "实时",
+    "listTitle": "会话列表",
+    "noWorkers": "暂无运行中的 Worker 会话。",
+    "totalTokensTip": "整个任务所有 agent 的 token 合计",
+    "taskTotal": "任务总计 · input {{input}} · cache {{cache}} · output {{output}}",
+    "tokensSummary": "input {{input}} · cache {{cache}} · output {{output}}",
+    "durationTip": "运行时长（首步 → 末步）",
+    "stopRun": "停止当前执行",
+    "interactive": "可交互",
+    "loadingStream": "加载活动流…",
+    "emptyMain": "还没有对话。在下方给主 Agent 发消息，引导探索方向或介入流程。",
+    "emptyOther": "暂无活动记录。",
+    "inputPlaceholder": "给主 Agent 发消息，引导探索方向…",
+    "sendFailed": "（发送失败，请稍后重试）"
   }
 }

@@ -192,18 +192,27 @@ func (e *Engine) unregisterWork(intentID int64) {
 	e.steerMu.Unlock()
 }
 
+// engTr picks the LLM-visible error language for engine strings (follows the
+// content_lang setting mirrored into the agent package).
+func engTr(en, zh string) string {
+	if agent.ContentLang() == "en-US" {
+		return en
+	}
+	return zh
+}
+
 // SteerWork queues a mid-run course-correction for the work running intentID (the
 // planner's steer_work tool). The worker delivers it before its next tool call and
 // re-plans — no kill. Errors if no work is currently running that intent.
 func (e *Engine) SteerWork(intentID int64, msg string) error {
 	if strings.TrimSpace(msg) == "" {
-		return fmt.Errorf("steer message cannot be empty")
+		return fmt.Errorf("%s", engTr("steer message cannot be empty", "纠偏消息不能为空"))
 	}
 	e.workMu.Lock()
 	running := e.workCancel[intentID] != nil
 	e.workMu.Unlock()
 	if !running {
-		return fmt.Errorf("intent %d currently has no running work (it may have finished or not been claimed)", intentID)
+		return fmt.Errorf(engTr("intent %d currently has no running work (it may have finished or not been claimed)", "意图 %d 当前没有运行中的 work（可能已结束或未被领取）"), intentID)
 	}
 	e.steerMu.Lock()
 	e.steerBox[intentID] = append(e.steerBox[intentID], msg)
@@ -268,7 +277,7 @@ func (e *Engine) KillWork(intentID int64) error {
 	c := e.workCancel[intentID]
 	e.workMu.Unlock()
 	if c == nil {
-		return fmt.Errorf("intent %d currently has no running work (it may have finished or not been claimed)", intentID)
+		return fmt.Errorf(engTr("intent %d currently has no running work (it may have finished or not been claimed)", "意图 %d 当前没有运行中的 work（可能已结束或未被领取）"), intentID)
 	}
 	c()
 	return nil

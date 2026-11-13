@@ -52,7 +52,10 @@ func (c *ChatAgent) SetGuard(g *guard.Guard) { c.guard = g }
 // agent's system prompt. Mirrors artifactSpec but without pentest-specific
 // wording ("payload", "抓响应体") that would be odd in a general assistant.
 func chatWorkDirSpec(workDir string) string {
-	return "\n\n**File output rules**: when you need to write files, always write them into the working directory " + workDir + " (this is the default CWD; relative paths land there, and you may also use the absolute path) — do not write to /tmp or other absolute paths."
+	return tr(
+		"\n\n**文件输出规约**：需要写文件时，一律写到工作目录 "+workDir+"（这是默认 CWD，相对路径即落在这里，也可用该绝对路径）——不要写 /tmp 或其他绝对路径。",
+		"\n\n**File output rules**: when you need to write files, always write them into the working directory "+workDir+" (this is the default CWD; relative paths land there, and you may also use the absolute path) — do not write to /tmp or other absolute paths.",
+	)
 }
 
 // chatSystem renders the DB-managed prompt body for agentKey. Custom agents have

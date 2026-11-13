@@ -70,10 +70,10 @@ func captureRunSession(ctx context.Context, s *agentcore.Session, input string, 
 		if err != nil {
 			flush()
 			if ctx.Err() != nil { // ctx cancelled = manual stop, not a failure
-				rec(db.Activity{Kind: "result", Summary: "(run manually stopped)"})
+				rec(db.Activity{Kind: "result", Summary: tr("（已手动停止本次运行）", "(run manually stopped)")})
 				return finalText, reason, ctx.Err()
 			}
-			rec(db.Activity{Kind: "result", IsError: true, Summary: "execution error: " + err.Error(), Detail: err.Error()})
+			rec(db.Activity{Kind: "result", IsError: true, Summary: tr("执行出错: ", "execution error: ") + err.Error(), Detail: err.Error()})
 			return finalText, reason, err
 		}
 		switch ev.Kind {
@@ -127,13 +127,19 @@ func captureRunSession(ctx context.Context, s *agentcore.Session, input string, 
 						// interruption (task paused / worker killed / backend restart),
 						// not a real completion — the intent is re-queued (open) or
 						// stopped, so the session icon reflects that, not this run.
-						sum = "(run interrupted: task paused / terminated / restarted; incomplete)"
+						sum = tr(
+							"（运行被中断：任务暂停 / 终止 / 重启所致；未完成）",
+							"(run interrupted: task paused / terminated / restarted; incomplete)",
+						)
 					case harness.ReasonTimeout, harness.ReasonMaxTurns:
 						// budget hit → settlement ran (facts/assets were written back);
 						// only the trailing text summary is missing, not a failure.
-						sum = "(run budget limit reached; settlement wrote back facts; no text summary this run, terminal state: " + string(ev.Terminal.Reason) + ")"
+						sum = tr(
+							"（达运行预算上限，已收尾写回事实；本次无文字总结，终态: ",
+							"(run budget limit reached; settlement wrote back facts; no text summary this run, terminal state: ",
+						) + string(ev.Terminal.Reason) + tr("）", ")")
 					default:
-						sum = "(no summary, terminal state: " + string(ev.Terminal.Reason) + ")"
+						sum = tr("（无总结，终态: ", "(no summary, terminal state: ") + string(ev.Terminal.Reason) + tr("）", ")")
 					}
 				}
 				u := ev.Terminal.Usage // cumulative token usage for this session

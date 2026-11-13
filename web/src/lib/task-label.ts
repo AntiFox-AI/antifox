@@ -1,3 +1,4 @@
+import i18n from "@/i18n/config";
 import type { Task } from "@/lib/types";
 
 // taskLabel renders a concise, identifiable task label used by every task filter
@@ -6,7 +7,7 @@ import type { Task } from "@/lib/types";
 export function taskLabel(t: { id: string; name?: string; description?: string }): string {
   const name = (t.name ?? "").trim();
   const desc = (t.description ?? "").trim();
-  const body = name || (desc.length > 28 ? desc.slice(0, 28) + "…" : desc) || "Untitled task";
+  const body = name || (desc.length > 28 ? desc.slice(0, 28) + "…" : desc) || i18n.t("common.untitledTask");
   return `#${t.id} ${body}`; // 编号(区分) + 名称优先/描述截断
 }
 

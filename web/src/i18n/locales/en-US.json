@@ -202,6 +202,7 @@
     "createdAt": "Created",
     "updatedAt": "Updated",
     "unauthorized": "Unauthorized",
+    "untitledTask": "Untitled task",
     "uploadFailed": "Upload failed ({{status}})",
     "pagination": {
       "perPage": "/ page",
@@ -1944,5 +1945,29 @@
     "format": "Format",
     "formatDocx": "Word (.docx)",
     "formatMd": "Markdown bundle (.zip: md+images)"
+  },
+  "sessions": {
+    "role": {
+      "mainagent": "Main Agent",
+      "planner": "Planner",
+      "worker": "Workers"
+    },
+    "mainTitle": "Main Agent · Orchestration Session",
+    "plannerTitle": "Planner · Situation Analysis",
+    "workerTitle": "Worker Session",
+    "live": "Live",
+    "listTitle": "Sessions",
+    "noWorkers": "No running worker sessions.",
+    "totalTokensTip": "Total tokens across all agents for this task",
+    "taskTotal": "Task total · input {{input}} · cache {{cache}} · output {{output}}",
+    "tokensSummary": "input {{input}} · cache {{cache}} · output {{output}}",
+    "durationTip": "Run duration (first step to last step)",
+    "stopRun": "Stop current run",
+    "interactive": "Interactive",
+    "loadingStream": "Loading activity stream…",
+    "emptyMain": "No conversation yet. Message the main agent below to steer exploration or intervene in the run.",
+    "emptyOther": "No activity yet.",
+    "inputPlaceholder": "Message the main agent to steer exploration…",
+    "sendFailed": "(Send failed — please try again later)"
   }
 }

@@ -97,7 +97,7 @@ func (s *Server) healthCheckMCP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if m == nil {
-		writeErr(w, 404, "MCP server not found")
+		s.writeErrL(w, 404, "MCP server not found", "MCP 服务不存在")
 		return
 	}
 	ctx, cancel := mcpTimeout(r.Context(), m)

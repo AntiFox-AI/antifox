@@ -114,8 +114,8 @@ func (sc *Scheduler) fireIntervals(triggers []*db.AgentTrigger) {
 			continue
 		}
 		_ = sc.pg.TouchTriggerFire(tr.ID)
-		ctx := "\n\n[This run was triggered by schedule]" + now.Format(" 2006-01-02 15:04:05 MST")
-		sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("Scheduled trigger · %s", now.Format("15:04")), tr.IntervalMessage+ctx, 0, false)
+		ctx := sc.s.lerr("\n\n[This run was triggered by schedule]", "\n\n【本次为定时触发】") + now.Format(" 2006-01-02 15:04:05 MST")
+		sc.s.StartTriggeredRun(tr.AgentKey, sc.s.lerr(fmt.Sprintf("Scheduled trigger · %s", now.Format("15:04")), fmt.Sprintf("定时触发 · %s", now.Format("15:04"))), tr.IntervalMessage+ctx, 0, false)
 	}
 }
 
@@ -141,10 +141,11 @@ func (sc *Scheduler) fireFindings(triggers []*db.AgentTrigger) {
 		if e.NodeID > maxID {
 			maxID = e.NodeID
 		}
-		msgCtx := fmt.Sprintf("\n\n[This run was triggered by a task finding]\nTask: #%d %s (target: %s)\nFinding: [%s/%s] %s",
-			e.TaskID, e.TaskDesc, e.TaskGoal, e.VulnClass, e.Severity, e.Summary)
+		msgCtx := sc.s.lerr(
+			fmt.Sprintf("\n\n[This run was triggered by a task finding]\nTask: #%d %s (target: %s)\nFinding: [%s/%s] %s", e.TaskID, e.TaskDesc, e.TaskGoal, e.VulnClass, e.Severity, e.Summary),
+			fmt.Sprintf("\n\n【本次因任务发现新漏洞而触发】\n任务：#%d %s（目标：%s）\n漏洞：[%s/%s] %s", e.TaskID, e.TaskDesc, e.TaskGoal, e.VulnClass, e.Severity, e.Summary))
 		for _, tr := range want {
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("finding trigger · task#%d", e.TaskID), tr.FindingMessage+msgCtx, e.TaskID, true)
+			sc.s.StartTriggeredRun(tr.AgentKey, sc.s.lerr(fmt.Sprintf("finding trigger · task#%d", e.TaskID), fmt.Sprintf("漏洞触发 · 任务#%d", e.TaskID)), tr.FindingMessage+msgCtx, e.TaskID, true)
 		}
 	}
 	_ = sc.pg.SetSchedState(schedKeyLastFinding, strconv.FormatInt(maxID, 10))
@@ -173,10 +174,11 @@ func (sc *Scheduler) fireGoals(triggers []*db.AgentTrigger) {
 		}
 		fired[e.NodeID] = true
 		changed = true
-		msgCtx := fmt.Sprintf("\n\n[This run was triggered by a completed task goal]\nTask: #%d %s (target: %s)\nGoal met: %s",
-			e.TaskID, e.TaskDesc, e.TaskGoal, e.Summary)
+		msgCtx := sc.s.lerr(
+			fmt.Sprintf("\n\n[This run was triggered by a completed task goal]\nTask: #%d %s (target: %s)\nGoal met: %s", e.TaskID, e.TaskDesc, e.TaskGoal, e.Summary),
+			fmt.Sprintf("\n\n【本次因任务目标达成而触发】\n任务：#%d %s（目标：%s）\n达成目标：%s", e.TaskID, e.TaskDesc, e.TaskGoal, e.Summary))
 		for _, tr := range want {
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("goal trigger · task#%d", e.TaskID), tr.GoalMessage+msgCtx, e.TaskID, true)
+			sc.s.StartTriggeredRun(tr.AgentKey, sc.s.lerr(fmt.Sprintf("goal trigger · task#%d", e.TaskID), fmt.Sprintf("目标达成触发 · 任务#%d", e.TaskID)), tr.GoalMessage+msgCtx, e.TaskID, true)
 		}
 	}
 	if changed {
@@ -206,10 +208,11 @@ func (sc *Scheduler) fireTaskTimeouts(triggers []*db.AgentTrigger) {
 		if e.NodeID > maxID {
 			maxID = e.NodeID
 		}
-		msgCtx := fmt.Sprintf("\n\n[This run was triggered by a task timeout]\nTask: #%d %s (target: %s)",
-			e.TaskID, e.TaskDesc, e.TaskGoal)
+		msgCtx := sc.s.lerr(
+			fmt.Sprintf("\n\n[This run was triggered by a task timeout]\nTask: #%d %s (target: %s)", e.TaskID, e.TaskDesc, e.TaskGoal),
+			fmt.Sprintf("\n\n【本次因任务超时触发】\n任务：#%d %s（目标：%s）", e.TaskID, e.TaskDesc, e.TaskGoal))
 		for _, tr := range want {
-			sc.s.StartTriggeredRun(tr.AgentKey, fmt.Sprintf("timeout trigger · task#%d", e.TaskID), tr.TaskTimeoutMessage+msgCtx, e.TaskID, true)
+			sc.s.StartTriggeredRun(tr.AgentKey, sc.s.lerr(fmt.Sprintf("timeout trigger · task#%d", e.TaskID), fmt.Sprintf("超时触发 · 任务#%d", e.TaskID)), tr.TaskTimeoutMessage+msgCtx, e.TaskID, true)
 		}
 	}
 	_ = sc.pg.SetSchedState(schedKeyLastTimeout, strconv.FormatInt(maxID, 10))

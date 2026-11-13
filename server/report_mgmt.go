@@ -21,7 +21,7 @@ import (
 func (s *Server) getReportSettings(w http.ResponseWriter, r *http.Request) {
 	rs, err := s.m.pg.GetReportSettings()
 	if err != nil {
-		writeErr(w, 500, "read failed")
+		s.writeErrL(w, 500, "read failed", "读取失败")
 		return
 	}
 	writeJSON(w, 200, rs)
@@ -41,7 +41,7 @@ func (s *Server) putReportSettings(w http.ResponseWriter, r *http.Request) {
 		CVSSVersion string `json:"cvss_version"`
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, "invalid request format")
+		s.writeErrL(w, 400, "invalid request format", "请求格式错误")
 		return
 	}
 	pj, _ := json.Marshal(body.Personnel)
@@ -50,7 +50,7 @@ func (s *Server) putReportSettings(w http.ResponseWriter, r *http.Request) {
 		LogoPath: strings.TrimSpace(body.LogoPath), Personnel: pj, CVSSVersion: strings.TrimSpace(body.CVSSVersion),
 	}
 	if err := s.m.pg.SaveReportSettings(rs); err != nil {
-		writeErr(w, 500, "save failed: "+err.Error())
+		s.writeErrL(w, 500, "save failed: "+err.Error(), "保存失败: "+err.Error())
 		return
 	}
 	saved, _ := s.m.pg.GetReportSettings()
@@ -60,34 +60,34 @@ func (s *Server) putReportSettings(w http.ResponseWriter, r *http.Request) {
 // POST /api/report-assets/logo — multipart "file" → data/report_assets/, returns relative path.
 func (s *Server) uploadReportLogo(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(8 << 20); err != nil { // 8 MB cap
-		writeErr(w, 400, "failed to parse upload")
+		s.writeErrL(w, 400, "failed to parse upload", "上传解析失败")
 		return
 	}
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "missing file")
+		s.writeErrL(w, 400, "missing file", "缺少文件")
 		return
 	}
 	defer file.Close()
 	ext := strings.ToLower(filepath.Ext(hdr.Filename))
 	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".svg" && ext != ".webp" {
-		writeErr(w, 400, "only png/jpg/svg/webp are supported")
+		s.writeErrL(w, 400, "only png/jpg/svg/webp are supported", "仅支持 png/jpg/svg/webp")
 		return
 	}
 	dir := filepath.Join(s.dataDir, "report_assets")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		writeErr(w, 500, "failed to create directory")
+		s.writeErrL(w, 500, "failed to create directory", "创建目录失败")
 		return
 	}
 	name := fmt.Sprintf("logo-%d%s", time.Now().UnixNano(), ext)
 	dst, err := os.Create(filepath.Join(dir, name))
 	if err != nil {
-		writeErr(w, 500, "write failed")
+		s.writeErrL(w, 500, "write failed", "写入失败")
 		return
 	}
 	defer dst.Close()
 	if _, err := io.Copy(dst, file); err != nil {
-		writeErr(w, 500, "write failed")
+		s.writeErrL(w, 500, "write failed", "写入失败")
 		return
 	}
 	// Return the uploaded asset path for preview only — it is persisted to
@@ -158,7 +158,7 @@ func (b *reportTemplateBody) toDB(id int64) *db.ReportTemplate {
 func (s *Server) listReportTemplates(w http.ResponseWriter, r *http.Request) {
 	ts, err := s.m.pg.ListReportTemplates()
 	if err != nil {
-		writeErr(w, 500, "read failed")
+		s.writeErrL(w, 500, "read failed", "读取失败")
 		return
 	}
 	writeJSON(w, 200, ts)
@@ -168,16 +168,16 @@ func (s *Server) listReportTemplates(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createReportTemplate(w http.ResponseWriter, r *http.Request) {
 	var body reportTemplateBody
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, "invalid request format")
+		s.writeErrL(w, 400, "invalid request format", "请求格式错误")
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
-		writeErr(w, 400, "template name must not be empty")
+		s.writeErrL(w, 400, "template name must not be empty", "模版名称不能为空")
 		return
 	}
 	id, err := s.m.pg.AddReportTemplate(body.toDB(0))
 	if err != nil {
-		writeErr(w, 500, "save failed: "+err.Error())
+		s.writeErrL(w, 500, "save failed: "+err.Error(), "保存失败: "+err.Error())
 		return
 	}
 	rt, _ := s.m.pg.GetReportTemplate(id)
@@ -189,15 +189,15 @@ func (s *Server) updateReportTemplate(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	var body reportTemplateBody
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, "invalid request format")
+		s.writeErrL(w, 400, "invalid request format", "请求格式错误")
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
-		writeErr(w, 400, "template name must not be empty")
+		s.writeErrL(w, 400, "template name must not be empty", "模版名称不能为空")
 		return
 	}
 	if err := s.m.pg.UpdateReportTemplate(body.toDB(id)); err != nil {
-		writeErr(w, 500, "save failed: "+err.Error())
+		s.writeErrL(w, 500, "save failed: "+err.Error(), "保存失败: "+err.Error())
 		return
 	}
 	rt, _ := s.m.pg.GetReportTemplate(id)
@@ -208,7 +208,7 @@ func (s *Server) updateReportTemplate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteReportTemplate(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err := s.m.pg.DeleteReportTemplate(id); err != nil {
-		writeErr(w, 500, "delete failed: "+err.Error())
+		s.writeErrL(w, 500, "delete failed: "+err.Error(), "删除失败: "+err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
@@ -218,7 +218,7 @@ func (s *Server) deleteReportTemplate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listReports(w http.ResponseWriter, r *http.Request) {
 	rs, err := s.m.pg.ListReports(200)
 	if err != nil {
-		writeErr(w, 500, "read failed")
+		s.writeErrL(w, 500, "read failed", "读取失败")
 		return
 	}
 	writeJSON(w, 200, rs)
@@ -229,7 +229,7 @@ func (s *Server) downloadReportByID(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	rec, err := s.m.pg.GetReport(id)
 	if err != nil || rec == nil {
-		writeErr(w, 404, "report not found")
+		s.writeErrL(w, 404, "report not found", "报告不存在")
 		return
 	}
 	// Resolve the file portably: report .docx always live in <dataDir>/reports, but
@@ -241,7 +241,7 @@ func (s *Server) downloadReportByID(w http.ResponseWriter, r *http.Request) {
 		path = rec.Path
 	}
 	if _, err := os.Stat(path); err != nil {
-		writeErr(w, 404, "report file no longer exists")
+		s.writeErrL(w, 404, "report file no longer exists", "报告文件已不存在")
 		return
 	}
 	w.Header().Set("Content-Type", reportContentType(path))
@@ -254,11 +254,11 @@ func (s *Server) deleteReportByID(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	rec, err := s.m.pg.GetReport(id)
 	if err != nil || rec == nil {
-		writeErr(w, 404, "report not found")
+		s.writeErrL(w, 404, "report not found", "报告不存在")
 		return
 	}
 	if err := s.m.pg.DeleteReport(id); err != nil {
-		writeErr(w, 500, "delete failed: "+err.Error())
+		s.writeErrL(w, 500, "delete failed: "+err.Error(), "删除失败: "+err.Error())
 		return
 	}
 	// best-effort remove the file (portable path first, then the recorded path).

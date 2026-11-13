@@ -38,6 +38,7 @@ import { api } from "@/lib/api";
 import type { Activity, Agent, Conversation, LLMProfile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { dateLocale } from "@/lib/locale";
 // fmtTokens renders a compact token count (1234 → 1.2k, 2_000_000 → 2M).
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1) + "M";
@@ -606,7 +607,7 @@ function ConversationItem({
             <Bot className="size-3 shrink-0" />
             <span className="min-w-0 truncate">{agent?.name ?? conv.agent_key}</span>
             <span className="shrink-0">·</span>
-            <span className="shrink-0">{new Date(conv.created_at).toLocaleDateString("en-US", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+            <span className="shrink-0">{new Date(conv.created_at).toLocaleDateString(dateLocale(), { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
             <span className="shrink-0 opacity-60">#{conv.id}</span>
           </div>
         </button>

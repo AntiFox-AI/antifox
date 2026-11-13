@@ -114,12 +114,12 @@ func nodeIDFromPath(r *http.Request) (int64, bool) {
 func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "Invalid finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	f, err := s.m.pg.GetFindingByNodeID(id)
 	if err != nil || f == nil {
-		writeErr(w, 404, "Finding not found")
+		s.writeErrL(w, 404, "Finding not found", "未找到漏洞")
 		return
 	}
 	enr, _ := s.m.pg.GetFindingEnrichment(id)
@@ -273,12 +273,12 @@ type enrichJob struct {
 func (s *Server) findingEnrich(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "Invalid finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	f, err := s.m.pg.GetFindingByNodeID(id)
 	if err != nil || f == nil {
-		writeErr(w, 404, "Finding not found")
+		s.writeErrL(w, 404, "Finding not found", "未找到漏洞")
 		return
 	}
 	company := strings.TrimSpace(r.URL.Query().Get("company"))
@@ -306,7 +306,7 @@ func (s *Server) findingEnrich(w http.ResponseWriter, r *http.Request) {
 func (s *Server) findingEnrichStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "Invalid finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	s.enrichMu.Lock()
@@ -391,7 +391,7 @@ func enrichmentHasProse(e *db.FindingEnrichment) bool {
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "Invalid finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	var body struct {
@@ -402,12 +402,12 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		Locale   string `json:"locale"` // 自动富化用的报告语言（可选，前端传 i18n.language）
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, "Invalid request body")
+		s.writeErrL(w, 400, "Invalid request body", "请求格式错误")
 		return
 	}
 	if err := s.m.pg.UpdateFindingEnrichmentFields(id, strings.TrimSpace(body.Name),
 		strings.TrimSpace(body.Target), strings.TrimSpace(body.Severity), strings.TrimSpace(body.Status)); err != nil {
-		writeErr(w, 500, "Save failed: "+err.Error())
+		s.writeErrL(w, 500, "Save failed: "+err.Error(), "保存失败: "+err.Error())
 		return
 	}
 	saved, _ := s.m.pg.GetFindingEnrichment(id)

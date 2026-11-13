@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 	"regexp"
 
@@ -43,8 +42,8 @@ func (s *Server) interceptCreateRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if err := validateInterceptRuleReq(req); err != nil {
-		writeErr(w, 400, err.Error())
+	if en, zh := validateInterceptRuleReq(req); en != "" {
+		s.writeErrL(w, 400, en, zh)
 		return
 	}
 	rule, err := pg.CreateInterceptRule(req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction)
@@ -63,7 +62,7 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		s.writeErrL(w, 400, "bad rule id", "无效的规则 id")
 		return
 	}
 	var req interceptRuleReq
@@ -71,8 +70,8 @@ func (s *Server) interceptUpdateRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	if err := validateInterceptRuleReq(req); err != nil {
-		writeErr(w, 400, err.Error())
+	if en, zh := validateInterceptRuleReq(req); en != "" {
+		s.writeErrL(w, 400, en, zh)
 		return
 	}
 	rule, err := pg.UpdateInterceptRule(id, req.Name, req.MatchTarget, req.MatchType, req.Pattern, req.Action, req.Message, req.Priority, req.Enabled, req.TimeoutEnabled, req.TimeoutSeconds, req.TimeoutAction)
@@ -91,7 +90,7 @@ func (s *Server) interceptDeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		s.writeErrL(w, 400, "bad rule id", "无效的规则 id")
 		return
 	}
 	if err := pg.DeleteInterceptRule(id); err != nil {
@@ -109,7 +108,7 @@ func (s *Server) interceptToggleRule(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad rule id")
+		s.writeErrL(w, 400, "bad rule id", "无效的规则 id")
 		return
 	}
 	var req struct {
@@ -152,7 +151,7 @@ func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
 	}
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad pending id")
+		s.writeErrL(w, 400, "bad pending id", "无效的 pending id")
 		return
 	}
 	p, err := pg.GetInterceptPending(id)
@@ -161,7 +160,7 @@ func (s *Server) interceptGetOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p == nil {
-		writeErr(w, 404, "not found")
+		s.writeErrL(w, 404, "not found", "不存在")
 		return
 	}
 	writeJSON(w, 200, p)
@@ -174,7 +173,7 @@ func (s *Server) interceptListTaskItems(w http.ResponseWriter, r *http.Request) 
 	}
 	taskID := r.PathValue("taskID")
 	if taskID == "" {
-		writeErr(w, 400, "bad task id")
+		s.writeErrL(w, 400, "bad task id", "无效的任务 id")
 		return
 	}
 	items, err := pg.ListTaskIntercepts(taskID)
@@ -207,7 +206,7 @@ func (s *Server) interceptHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "bad pending id")
+		s.writeErrL(w, 400, "bad pending id", "无效的 pending id")
 		return
 	}
 	var req struct {
@@ -218,7 +217,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Decision != "allowed" && req.Decision != "denied" {
-		writeErr(w, 400, "decision must be allowed or denied")
+		s.writeErrL(w, 400, "decision must be allowed or denied", "decision 必须是 allowed 或 denied")
 		return
 	}
 	if err := s.m.interceptor.Decide(id, req.Decision == "allowed"); err != nil {
@@ -277,32 +276,32 @@ type interceptRuleReq struct {
 	TimeoutAction  string `json:"timeout_action"`
 }
 
-func validateInterceptRuleReq(req interceptRuleReq) error {
+func validateInterceptRuleReq(req interceptRuleReq) (en, zh string) {
 	if req.Name == "" {
-		return fmt.Errorf("name must not be empty")
+		return "name must not be empty", "name 不能为空"
 	}
 	switch req.MatchTarget {
 	case "tool_name", "tool_input":
 	default:
-		return fmt.Errorf("match_target must be tool_name or tool_input")
+		return "match_target must be tool_name or tool_input", "match_target 必须是 tool_name 或 tool_input"
 	}
 	switch req.MatchType {
 	case "string", "regex":
 	default:
-		return fmt.Errorf("match_type must be string or regex")
+		return "match_type must be string or regex", "match_type 必须是 string 或 regex"
 	}
 	if req.Pattern == "" {
-		return fmt.Errorf("pattern must not be empty")
+		return "pattern must not be empty", "pattern 不能为空"
 	}
 	switch req.Action {
 	case "allow", "deny", "ask":
 	default:
-		return fmt.Errorf("action must be allow, deny or ask")
+		return "action must be allow, deny or ask", "action 必须是 allow、deny 或 ask"
 	}
 	if req.MatchType == "regex" {
 		if _, err := regexp.Compile(req.Pattern); err != nil {
-			return fmt.Errorf("pattern is not a valid regex: %w", err)
+			return "pattern is not a valid regex: " + err.Error(), "pattern 不是有效正则：" + err.Error()
 		}
 	}
-	return nil
+	return "", ""
 }
