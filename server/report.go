@@ -55,7 +55,7 @@ func (s *Server) generateReport(w http.ResponseWriter, r *http.Request) {
 			if rec := recover(); rec != nil {
 				s.reportMu.Lock()
 				job.Status = "failed"
-				job.Error = fmt.Sprintf("报告生成异常：%v", rec)
+				job.Error = fmt.Sprintf("report generation panic: %v", rec)
 				s.reportMu.Unlock()
 			}
 		}()
@@ -122,7 +122,7 @@ func (s *Server) downloadReport(w http.ResponseWriter, r *http.Request) {
 	}
 	s.reportMu.Unlock()
 	if job == nil || status != "done" || path == "" {
-		writeErr(w, 404, "报告尚未生成")
+		writeErr(w, 404, "Report not generated yet")
 		return
 	}
 	w.Header().Set("Content-Type", reportContentType(path))
@@ -214,9 +214,9 @@ func (s *Server) buildReportInput(t *Task, q map[string][]string) *report.GenInp
 	}
 	// 项目名(封面/标题)用【短任务名】，绝不用整段描述——否则用户把目标系统清单写进
 	// 描述时会被灌进封面"项目名称"、撑爆封面(整段描述当标题会很乱)。完整描述另经 Scope 喂 AI。
-	project := defaultStrSrv(t.Name, "渗透测试项目")
+	project := defaultStrSrv(t.Name, "Pentest Project")
 	if len([]rune(project)) > 40 { // 名称异常长(误填清单)→ 回退,别撑爆封面
-		project = "渗透测试项目"
+		project = "Pentest Project"
 	}
 
 	// Resolve org-level cover metadata. Precedence: explicit query param >
