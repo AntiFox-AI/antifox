@@ -33,6 +33,11 @@ services:
       - "127.0.0.1:8787:8787"
       - "127.0.0.1:8788:8788"
     volumes:
+      # locally-built dual-language binary (feat/content-lang-full); the
+      # content_lang setting (en-US) selects English. Recreate the container
+      # (podman compose up -d antifox) to pick up a rebuild — the file is
+      # bind-mounted, the image stays untouched.
+      - ./antifox-dual:/app/antifox:ro
       # 把数据目录（含 jwt.key、SQLite 等）绑定到项目根目录的 data/，
       # 方便在宿主机直接查看/备份，容器重建也不丢。
       - ./data:/app/data
