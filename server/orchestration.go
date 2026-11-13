@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"antifox/agent"
 	"antifox/engine/permission"
 	actool "antifox/engine/tool"
-	"antifox/agent"
 )
 
 // jsonResult marshals v to a JSON tool result.

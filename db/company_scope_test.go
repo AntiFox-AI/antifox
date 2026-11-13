@@ -15,9 +15,9 @@ func TestParseScopeLine(t *testing.T) {
 		{"example.com", "domain", false},
 		{"https://sub.example.com/path", "domain", false},
 		{"1.2.3.4", "ip", false},
-		{"10.0.0.0/8", "", true},       // over-broad IPv4 (< /16)
+		{"10.0.0.0/8", "", true}, // over-broad IPv4 (< /16)
 		{"198.51.100.0/24", "cidr", false},
-		{"co.uk", "", true},            // bare public suffix
+		{"co.uk", "", true}, // bare public suffix
 		{"not a host", "", true},
 		{"1.2.3.1-1.2.3.9", "", true}, // ranges must be CIDR
 	}
