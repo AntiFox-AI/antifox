@@ -1,0 +1,1118 @@
+{
+  "add_company_scope": {
+    "description": "Add root domains/IPs/CIDR ranges to a company's [asset scope] — once added, the system automatically claims all matching assets (existing and future).\nCompany names are unique: if company does not exist it is created; if it exists it is reused (the scope is merely merged in).\nOne scope entry per line, supporting: root domain / single IP / CIDR range (e.g. 1.2.3.0/24).\nAlways provide reason explaining the attribution basis (whois/certificate/ASN etc.).\nGuardrails: bare TLDs and overly broad ranges are rejected (IPv4<=/16, IPv6<=/32); invalid lines are skipped and returned in errors.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "company",
+        "scope"
+      ],
+      "properties": {
+        "logo": {
+          "type": "string",
+          "description": "Company logo URL (optional; only takes effect when creating a new company)"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Asset scope, one entry per line: root domain / IP / CIDR"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Attribution basis (evidence/source); always fill this in"
+        },
+        "company": {
+          "type": "string",
+          "description": "Company name (created if absent, reused if present; name is unique)"
+        }
+      }
+    }
+  },
+  "add_hint": {
+    "description": "Attach strategic hints from the human/main agent to the exploration graph; the planner will read them when generating intents next time.\n★Prefer batching: put multiple hints into the hints array and submit once (saves round trips vs. calling one by one). Returns an ids array, same length and order as hints (failed items have id=0, see errors for details). For a single hint, omit hints and give the top-level text directly.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "[Single] Hint content, e.g. 'focus on digging into authenticated endpoints'"
+        },
+        "hints": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "[Prefer this] Array of hints to add, processed in order. Each element's fields match the top-level fields below (text/asset_ids). Returns ids with the same length and order as this array."
+        },
+        "asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Asset ids to anchor to (optional, 0/1/many)"
+        }
+      }
+    }
+  },
+  "add_intent": {
+    "description": "Generate [exploration directions] written into the frontier and linked into the exploration chain. An intent is an open-ended exploration direction, not a fixed type — use summary to freely describe in one sentence what to explore/verify/exploit.\n★Prefer batching: submit multiple new directions from a screening round in the intents array at once (saves round trips vs. calling one by one). Returns an ids array, same length and order as intents (failed items have id=0, see errors for details). For a single intent, omit intents and give the top-level summary directly.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "intents": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "[Prefer this] Array of exploration directions to add, processed in order. Each element's fields match the top-level fields below (summary/asset_ids/parent_ids/priority). Returns ids with the same length and order as this array."
+        },
+        "summary": {
+          "type": "string",
+          "description": "[Single] One-sentence description of this exploration direction: what + why. Describing the direction clearly is enough; asset ids not required."
+        },
+        "priority": {
+          "type": "integer",
+          "description": "Priority 0-10, default 5"
+        },
+        "asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "[Target asset ids] this direction will test/attack (**pass them when possible**, 0/1/many; these are asset ids returned by list_assets, not exploration node ids): which assets (sites/endpoints/parameters/hosts etc.) this exploration direction targets. Whenever the direction revolves around specific assets, be sure to pass them — it is the structured marker of 'which targets this exploration hits', used for coverage dedup and linking the intent into the asset chain. Leave empty only for purely global reconnaissance with genuinely no specific target assets."
+        },
+        "parent_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Upstream anchor ids (optional, 0/1/many): which [confirmed facts/findings] this direction was derived from. **Only existing fact/finding node ids may be used — not intents/goals/hints** — an intent must be anchored to confirmed knowledge, driven by findings rather than planned out of thin air. If multiple facts jointly produce one new intent, pass all of them; leave empty for a brand-new top-level reconnaissance direction (it will be auto-attached to the task's origin fact)."
+        }
+      }
+    }
+  },
+  "add_task_hint": {
+    "description": "Inject a strategic hint into a specified task (that task's planner will read it when generating intents next round).\n★Prefer batching: put multiple hints into the hints array and submit once (returns an ids array, same length and order as hints, failed items id=0); for a single hint, omit hints and give the top-level text directly.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "[Single] Hint content"
+        },
+        "hints": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "[Prefer this] Array of hints; each element's fields match the top-level ones (text/asset_ids)."
+        },
+        "task_id": {
+          "type": "string",
+          "description": "Task id"
+        },
+        "asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Asset ids to anchor to (optional, 0/1/many; asset ids within that task)"
+        }
+      }
+    }
+  },
+  "create_custom_tool": {
+    "description": "Create a custom tool (shell/command/script/http). shell = a bash environment declaration, only needs key+description+agents, no exec/schema required.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "key",
+        "kind"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Tool key (starts with a lowercase letter; letters/digits/underscores)"
+        },
+        "exec": {
+          "type": "object",
+          "description": "Execution spec (not needed for shell): command→{command}; script→{code}; http→{method,url,headers,body,proxy,use_recording_proxy}"
+        },
+        "kind": {
+          "type": "string",
+          "description": "shell | command | script (Python only) | http. shell = bash environment declaration (merely informs the model the tool can be invoked directly in bash, no exec/schema needed); the other three require exec"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Bound agent keys (optional)"
+        },
+        "schema": {
+          "type": "object",
+          "description": "Parameter JSON-Schema (may be empty for shell/command/script; required for http and must contain properties)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether enabled (default true)"
+        },
+        "deferred": {
+          "type": "boolean",
+          "description": "Whether deferred (no effect for shell; enable only for infrequently used command/script/http tools)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description sent to the model"
+        }
+      }
+    }
+  },
+  "create_mcp": {
+    "description": "Create an MCP server (stdio/http). After creation, its tools must be authorized per agent visibility.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "transport"
+      ],
+      "properties": {
+        "env": {
+          "type": "object",
+          "description": "Environment variables {KEY:VALUE}"
+        },
+        "url": {
+          "type": "string",
+          "description": "URL for http/sse"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Command argument array"
+        },
+        "name": {
+          "type": "string",
+          "description": "MCP server name"
+        },
+        "command": {
+          "type": "string",
+          "description": "Launch command for stdio (e.g. npx)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether enabled (default true)"
+        },
+        "transport": {
+          "type": "string",
+          "description": "stdio | http / sse"
+        }
+      }
+    }
+  },
+  "create_skill": {
+    "description": "Create a new skill (writes SKILL.md, agentskills.io spec). Name uses lowercase letters/digits/hyphens.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "description"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Skill name (starts with a lowercase letter; letters/digits/hyphens)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Skill description (required; explain what it does / when to use it)"
+        },
+        "instructions": {
+          "type": "string",
+          "description": "Markdown body instructions (optional)"
+        }
+      }
+    }
+  },
+  "get_task_graph": {
+    "description": "Read the exploration graph overview of a specified task (same as graph_overview: asset counts/frontier/findings/coverage etc.), with task_id selecting the task.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id"
+        }
+      }
+    }
+  },
+  "get_task_worker_trace": {
+    "description": "View the execution process of a work (intent) in a specified task: get_task_worker_trace(task_id, intent_id) shows step summaries; then pass step_ids=[...] to fetch the full content of those steps (at most 5 at a time).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id",
+        "intent_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id"
+        },
+        "step_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Optional: step ids whose full content to fetch (<=5)"
+        },
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id (the work within that task)"
+        }
+      }
+    }
+  },
+  "get_worker_output": {
+    "description": "Fetch the final output conclusion of an intent (work). Returns its summary if it ended normally; for stopped/abnormally ended work returns its last output up to termination (terminated=true).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "intent_id"
+      ],
+      "properties": {
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id (= work handle)"
+        }
+      }
+    }
+  },
+  "get_worker_trace": {
+    "description": "View the [execution process] of an intent (work) (unlike get_worker_output which only gives the final conclusion). Three usages:\n① intent_id only → returns a summary stream of every step of the work (summary<=100 chars, includes step_id; just the action outline, no full output);\n② intent_id + q → only returns step summaries matching the keyword (searches both summaries and full outputs; still returns summaries only — use ③ for content);\n③ intent_id + step_ids (at most 5) → returns the full content (detail) of those steps.\nTypical flow: use ①/② to locate suspicious step_ids, then ③ to fetch their full output. Thinking steps are not included.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "intent_id"
+      ],
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "Keyword: only return steps whose summary/full output match it (optional; mutually exclusive with step_ids)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Return limit for the summary stream/search (optional)"
+        },
+        "step_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "step_ids whose full content to fetch (from ①/② results, at most 5 at a time)"
+        },
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id (= work handle)"
+        }
+      }
+    }
+  },
+  "goal_met": {
+    "description": "[Immediately end the entire task] — call this only when you confirm that [all goals of the task are truly achieved and the task is wrapping up overall] (note: the task as a [whole]; merely achieving one particular goal/flag/vulnerability [does not count] — in that case just mark that goal with prove_goal). ⚠️It is NOT for 'ending this planning round': if there are no new intents to dispatch this round, or you are waiting on worker output, [just end the round directly — do not call this tool] (0 intents is perfectly normal). For normal adjudication, prefer proving goals one by one with prove_goal; goal_met is only the means to wrap up globally while bypassing per-goal proof.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Achievement rationale (must be evidence that the goals are truly achieved, not a round-ending reason like 'no new directions this round')"
+        }
+      }
+    }
+  },
+  "graph_overview": {
+    "description": "(Exploration chain graph) Distilled summary of the exploration situation: asset counts, sites without endpoints, frontier, findings, hints (strategic hints from the human/main agent that must be taken into account when generating intents). Call this first when planning.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "insert_assets": {
+    "description": "Batch-insert newly discovered assets into the asset library immediately. Supports submitting multiple asset types at once: root_domain/ip/subdomain/app/service/endpoint.\nField notes per asset type:\n• root_domain: domain (root domain, required), icp (ICP filing, optional)\n• ip: ip (IP address, required), bound_domains ([domains]), open_ports ([{port,service}])\n• subdomain: domain (subdomain, required), record_type (A/AAAA/CNAME etc.), record_value (record values), icp (optional)\n• app: app_name (application name, required), bundle_id (bundle id, optional), category, description, app_icp, company_id (owning company id, optional)\n• service (http): url (required), technologies ([fingerprints]), status_code, content_length, page_title, favicon_mmh3, auth ([{type,username,password,...}]), service_ip\n• service (other): service_name (required), ip or domain (at least one), port (required), auth ([...])\n• endpoint: url (required), method (required), params ([{location,name,value,type}]), service_ip\nauth/technologies/params are all [append-merged] (append), never overwriting existing values.\nReturns: {results:[{index,id,type}], errors:[{index,error}]}",
+    "schema": {
+      "type": "object",
+      "required": [
+        "assets"
+      ],
+      "properties": {
+        "assets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "ip": {
+                "type": "string",
+                "description": "IP address (required for ip type; may be filled for service/endpoint types to link the IP)"
+              },
+              "icp": {
+                "type": "string",
+                "description": "ICP filing number (optional)"
+              },
+              "url": {
+                "type": "string",
+                "description": "Full URL including scheme and port (required for HTTP services; service_type is automatically set to http)"
+              },
+              "auth": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "List of discovered credentials, each containing type/username/password etc. (optional, appended not overwritten)"
+              },
+              "port": {
+                "type": "integer",
+                "description": "Port number (required for non-HTTP services)"
+              },
+              "type": {
+                "enum": [
+                  "root_domain",
+                  "ip",
+                  "subdomain",
+                  "app",
+                  "service",
+                  "endpoint"
+                ],
+                "type": "string",
+                "description": "Asset type"
+              },
+              "domain": {
+                "type": "string",
+                "description": "Root domain or subdomain (required for root_domain/subdomain)"
+              },
+              "method": {
+                "type": "string",
+                "description": "HTTP method: GET/POST/PUT/PATCH/DELETE etc. (required for endpoint)"
+              },
+              "params": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "List of request parameters, each containing location (query/body/header/path)/name/value/type (optional, appended not overwritten)"
+              },
+              "app_icp": {
+                "type": "string",
+                "description": "Application ICP filing (optional)"
+              },
+              "app_name": {
+                "type": "string",
+                "description": "Application name (required for app type)"
+              },
+              "category": {
+                "type": "string",
+                "description": "Application category (optional)"
+              },
+              "bundle_id": {
+                "type": "string",
+                "description": "Bundle ID (optional for app type)"
+              },
+              "company_id": {
+                "type": "integer",
+                "description": "Owning company id (optional for app type; apps cannot be auto-attributed by scope and must be specified explicitly. id is returned by add_company_scope)"
+              },
+              "open_ports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "port"
+                  ],
+                  "properties": {
+                    "port": {
+                      "type": "integer",
+                      "description": "Port number"
+                    },
+                    "service": {
+                      "type": "string",
+                      "description": "Service name, e.g. http/ssh/mysql etc. (optional)"
+                    }
+                  }
+                },
+                "description": "List of open ports (optional for ip type)"
+              },
+              "page_title": {
+                "type": "string",
+                "description": "Page <title> content (optional)"
+              },
+              "description": {
+                "type": "string",
+                "description": "Application description (optional)"
+              },
+              "record_type": {
+                "type": "string",
+                "description": "DNS record type: A/AAAA/CNAME/MX etc. (optional for subdomain)"
+              },
+              "status_code": {
+                "type": "integer",
+                "description": "HTTP response status code, e.g. 200/301/403/404 (optional)"
+              },
+              "favicon_mmh3": {
+                "type": "string",
+                "description": "favicon MMH3 hash (optional)"
+              },
+              "record_value": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of DNS record values (optional for subdomain, e.g. [\"1.2.3.4\",\"2.3.4.5\"])"
+              },
+              "service_name": {
+                "type": "string",
+                "description": "Service name, e.g. ssh/mysql/redis (required for non-HTTP services)"
+              },
+              "technologies": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Fingerprint/technology stack list, e.g. [\"Nginx\",\"Vue\",\"Bootstrap\"] (optional)"
+              },
+              "bound_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "List of domains bound to this IP (optional for ip type)"
+              },
+              "content_length": {
+                "type": "integer",
+                "description": "HTTP response body size in bytes (optional)"
+              }
+            }
+          },
+          "description": "Asset array; each element corresponds to one asset record"
+        },
+        "task_id": {
+          "type": "integer",
+          "description": "Task id (optional, used for task association)"
+        }
+      }
+    }
+  },
+  "kill_work": {
+    "description": "Terminate a running intent (work). Use to stop exploration that has gone off track or is pointless; a terminated intent is marked stopped and will not be auto-reclaimed. Check what it is doing with get_worker_output before deciding.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "intent_id"
+      ],
+      "properties": {
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id to terminate (= work handle)"
+        }
+      }
+    }
+  },
+  "list_assets": {
+    "description": "Query the asset library. Supports DSL expression search, direct fetch by id/ids, and pagination.\nDSL syntax: field=value fuzzy (ILIKE) | field==value exact | field!=value exclude | port>80 numeric comparison | bare word = full-text fuzzy.\nLogical operators: AND / OR (keywords, AND binds tighter than OR), with parentheses for grouping.\nAsset type is filtered via the separate type parameter; the DSL contains no type field.\nConstraint: when id/ids is not provided, dsl must be non-empty — unconditional queries of all assets are not allowed; a query condition is required.\nField reference:\n  domain      Domain name (root domain/subdomain/service domain)\n  root_domain Root domain (only subdomain/service assets have it)\n  ip          IPv4/IPv6 address\n  url         Full URL (service/endpoint)\n  page_title  Page title (HTTP service)\n  icp         ICP filing number (root domain)\n  service_name Service name (non-HTTP service)\n  app_name    Application name (app type)\n  method      HTTP method (endpoint type, e.g. GET/POST)\n  service_type HTTP service type: http|other\n  record_type DNS record type (subdomain, e.g. A/CNAME)\n  technology  Fingerprint/technology stack (array field; = fuzzy, == exact)\n  port        Port number (integer, supports > >= < <=)\n  status_code HTTP status code (integer, supports > >= < <=)\n  company_id  Owning company id (integer)\n  task_id     Source task id (integer)\nExamples: status_code>=400 AND technology=shiro\n      method==POST AND url=/api/admin\n      icp=Beijing OR icp=Shanghai\n      (port==80 OR port==443) AND technology=nginx",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Fetch by a single asset id (optional; mutually exclusive with dsl/type)"
+        },
+        "dsl": {
+          "type": "string",
+          "description": "DSL query expression, see tool description. Must be non-empty when id/ids is not provided. E.g.: status_code>=400 technology=shiro / method==POST url=/api/admin"
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Fetch by multiple asset ids (optional; mutually exclusive with dsl/type)"
+        },
+        "type": {
+          "type": "string",
+          "description": "Asset type filter: root_domain|ip|subdomain|app|service|endpoint (separate field, can combine with dsl; type alone is not sufficient for a query, dsl is still required)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Return limit, default 10 (optional)"
+        },
+        "offset": {
+          "type": "integer",
+          "description": "Pagination offset, default 0 (optional)"
+        }
+      }
+    }
+  },
+  "list_companies": {
+    "description": "List [companies] in the asset library with their asset scopes and counts of attributed assets. Use to see which companies exist and get company_id (used when insert_assets links an app, or list_assets filters by company_id). Optional search filters by company name fuzzily (case-insensitive); leave empty to return all.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "search": {
+          "type": "string",
+          "description": "Fuzzy filter by company name (optional, case-insensitive); leave empty to return all"
+        }
+      }
+    }
+  },
+  "list_facts": {
+    "description": "List [exploration facts/conclusions] (compact: id + summary + status), i.e. the conclusions workers reached per intent (including negative conclusions like 'port closed / not injectable'). Use node_detail(id) for details. For vulnerabilities see list_findings.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "list_findings": {
+    "description": "List [confirmed vulnerabilities] (compact: id + task_id + intent_id + vulnclass + severity + summary + status). task_id = the task the vulnerability belongs to; intent_id = the intent that produced it. Only vulnerabilities here, not ordinary exploration facts (those are list_facts). Use node_detail(id) for details.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "list_goals": {
+    "description": "List this task's goal nodes and their status (open/met), for judging whether they are achieved.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "list_knowledge_categories": {
+    "description": "List the knowledge base's existing categories (global + current task). First see which categories exist, then use search_knowledge for targeted retrieval.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "list_llm_profiles": {
+    "description": "List available LLM profiles: id, name, model, format, and whether it is the currently active profile. Use the id for spawn_task's llm_profile_id parameter to give a subtask a dedicated LLM (e.g. a cheap model for recon, a strong model for exploitation). Does not contain API keys.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "list_task_findings": {
+    "description": "Read a specified task's confirmed vulnerabilities (including flags/PoCs; each with id/task_id/intent_id/vulnclass/severity/summary/status), with task_id selecting the task.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id"
+        }
+      }
+    }
+  },
+  "list_task_worker_traces": {
+    "description": "List which works (intents) have run in a specified task + their step counts, to discover which works are worth reviewing (then use get_task_worker_trace).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id"
+        }
+      }
+    }
+  },
+  "list_tasks": {
+    "description": "List all tasks (id/description/goals/status/runtime/parent task/LLM profile); the orchestration agent uses this to keep the global picture, see which tasks are stuck too long, and which LLM each uses. Runtime: running = creation→now, terminal = creation→last activity (seconds). llm_profile: the profile name used by the task's planner/worker; (active profile) = follows the global active one.",
+    "schema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "list_worker_traces": {
+    "description": "List an index of [works (intents) already run] in this task: intent_id + one-line direction (summary) + status. You (the worker) cannot see the exploration graph; use this to discover which works are worth reviewing — then get_worker_trace(intent_id) for their steps and get_worker_trace(intent_id, step_ids=[...]) for details. Lists only executed works (running/done/exhausted/blocked/stopped), not still-open ones. Note: your task boundary remains the intent you claimed; reviewing other works is only for reusing observations/avoiding duplicated effort.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "Filter by summary keyword (optional)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Return limit, default 50 (optional)"
+        }
+      }
+    }
+  },
+  "node_detail": {
+    "description": "Fetch the full content of an [exploration graph node] by id (fact/finding/intent/goal: summary + details/evidence/PoC). Limited to exploration graph node ids (ids returned by list_facts / list_findings / graph_overview's recent_facts). To look up [assets] use list_assets / asset_neighbors — asset ids are not exploration node ids; do not pass them here.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "Exploration graph node id (not an asset id)"
+        }
+      }
+    }
+  },
+  "pause_task": {
+    "description": "Pause a specified task (stops its planner/worker loop).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string",
+          "description": "Task id to pause"
+        }
+      }
+    }
+  },
+  "prove_goal": {
+    "description": "Call when you judge that a finding/fact proves a goal is achieved: links the evidence node to the goal node and marks the goal met.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "goal_id",
+        "evidence_id"
+      ],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "Why this evidence satisfies the goal"
+        },
+        "goal_id": {
+          "type": "integer",
+          "description": "Goal node id"
+        },
+        "evidence_id": {
+          "type": "integer",
+          "description": "The finding/fact node id that proves it"
+        }
+      }
+    }
+  },
+  "record_fact": {
+    "description": "Write an exploration [fact/conclusion] into the exploration graph, linked to the intent that produced it (intent_id). Used to record exploration results — including [positive conclusions] like fingerprints/enumeration, and [negative conclusions] like 'port closed' / 'parameter not injectable' / 'no login entry found'.\n⚠️Multiple observations from one exploration must be [consolidated into one fact] — do not split into multiple; if they can be merged into one fact, represent them with one fact: summary = one summarizing sentence of this conclusion, detail = relevant details (may contain multiple specific items). E.g. fingerprint intent → one fact {summary:'Identified the technology stack and response characteristics of site X', detail:'nginx 1.25 / Vue3 / 200 / title=.. / body_len=..'}, not separate facts for status code, fingerprint, and title. One intent usually yields one fact; splitting too finely bloats the graph endlessly.\n★The facts array is for writing multiple [mutually distinct] conclusions at once (each may omit intent_id, defaulting to the top-level intent_id). Returns an ids array, same length and order as facts.\n⚠️Only write conclusions you [actually saw] in tool output — do not fabricate. evidence and confidence exist to prevent inaccurate conclusions from polluting the graph:\n  · evidence = the [one-line] key evidence supporting the conclusion (command + the one or two output lines that best prove it), **keep it brief** — details already live in detail; do not paste large output blocks here.\n  · confidence = observed (directly seen in output) | inferred (deduced from phenomena).\n  · **Negative conclusions** (not injectable / port closed / no entry found etc.) especially require evidence and honest confidence — they make the planner abandon a direction, so a wrong negative is costly; if you probed only once or evidence is weak, mark inferred and don't treat it as ironclad.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "facts": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "[Use when there are multiple distinct conclusions] Fact array; element fields match the top-level fields below (summary/detail/evidence/confidence/intent_id/asset_ids); omit intent_id to use the top-level intent_id. Returns ids with the same length and order as this array."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Relevant details of this fact: write all observations from this exploration here"
+        },
+        "summary": {
+          "type": "string",
+          "description": "[One summarizing sentence] of this exploration's conclusion (a distillation of detail)"
+        },
+        "evidence": {
+          "type": "string",
+          "description": "[One-line] key evidence: command + the one or two output lines that best prove the conclusion. Keep it brief; do not paste large output blocks (details go in detail)."
+        },
+        "asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Related asset ids (optional, 0/1/many): which assets this fact involves"
+        },
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id that produced this fact (the intent you claimed; default for each item when batching)"
+        },
+        "confidence": {
+          "type": "string",
+          "description": "observed (directly seen in output) | inferred (deduced from phenomena). Negative conclusions must be honestly labeled."
+        }
+      }
+    }
+  },
+  "report_finding": {
+    "description": "You MUST call this tool when you discover a vulnerability or confirm an exposure-type risk! Records a confirmed vulnerability, or a verified exposure/information-disclosure risk (unauthenticated accessible sensitive/admin/debug endpoints, exposed Swagger/config/backups, sensitive data leaks, etc. — it counts as confirmed once actually accessed with response evidence). In task context intent_id is required (the currently executing intent id); in session context intent_id may be omitted.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "vulnclass",
+        "severity",
+        "summary"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "description": "Finding summary"
+        },
+        "evidence": {
+          "type": "string",
+          "description": "Evidence/PoC text"
+        },
+        "severity": {
+          "type": "string",
+          "description": "critical|high|medium|low"
+        },
+        "asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Affected asset ids (optional, 0/1/many): parameters/endpoints/sites etc. Fill all if one vulnerability affects multiple places; may omit for pure observation."
+        },
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id that produced this finding (required in task context; may be omitted in session context)"
+        },
+        "vulnclass": {
+          "type": "string",
+          "description": "Vulnerability class"
+        },
+        "reproduction": {
+          "type": "object",
+          "properties": {
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "proves": {
+                    "type": "string",
+                    "description": "What this step proves"
+                  },
+                  "request": {
+                    "type": "string",
+                    "description": "The real request of this step, written as a [standard HTTP request message]: request line (METHOD /path?query HTTP/1.1) + key headers (Host/Content-Type/Cookie etc.) + blank line + body, taken verbatim from the request you actually sent. [Do not write it as a curl/python/shell command] — even if you executed it with curl, restore it as the equivalent HTTP message. Only when the step genuinely does not use HTTP (e.g. direct database connection, locally generated token) may you write that tool call as-is, prefixed with 'Non-HTTP:'."
+                  },
+                  "expected": {
+                    "type": "string",
+                    "description": "Expected outcome/conclusion of this step (status code + key fields, one sentence)"
+                  },
+                  "response": {
+                    "type": "string",
+                    "description": "The real response of this step, written as an [HTTP response]: status line (HTTP/1.1 200 OK) + key headers + key body fragments, taken verbatim from the real return. [Do not use ... to elide key content that proves the issue]; if the response is long, keep only the fragments that locate this traffic and prove the vulnerability (echo/token/error etc.)."
+                  }
+                }
+              },
+              "description": "Ordered reproduction steps (from entry to confirmation); each step written as [standard HTTP request message + key response] (not curl/commands, no ... elision in responses) so they can be auto-linked to the recorded real traffic, supporting one-click jump and screenshots"
+            },
+            "provenance": {
+              "type": "string",
+              "description": "Which exploration/intent discovered this vulnerability and which prior results it depended on (attack chain origin)"
+            },
+            "entry_point": {
+              "type": "string",
+              "description": "The key endpoint that triggers the vulnerability (method + URL), e.g. POST /user/validate/otp/forgetPasswordVerify"
+            },
+            "prerequisites": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Reproduction prerequisites: required accounts/roles/sessions/prior steps. If a test account is needed, write clearly [how to register] (endpoint + key request essentials) — reproducible from zero."
+            }
+          },
+          "description": "[Strongly recommended] Structured reproduction process — for manual reproduction from scratch and delivery reports. Each step's request written as a [standard HTTP request message] (not curl/commands), response as [status line + key body] (no ... eliding key content), all verbatim from requests/responses you actually executed this time — never rewritten or fabricated; you know each step best right after executing it."
+        }
+      }
+    }
+  },
+  "search_all_worker_traces": {
+    "description": "Search by keyword (q) across [the execution process of all works in this task] — used to recover something a worker saw but didn't write into a fact (some path/token/error etc.). Returns only summaries of matching steps (summary<=100 chars), each with intent_id; then use get_worker_trace(intent_id, step_ids=[...]) to fetch full content. Thinking steps are not included.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "q"
+      ],
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "Keyword (searched in all work steps' summaries + full outputs)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Return limit, default 100 (optional)"
+        }
+      }
+    }
+  },
+  "search_knowledge": {
+    "description": "Search the knowledge base: global general knowledge (vulnerability DB/0day/techniques/methodology) + current-task-specific material (scoring rules/authorized scope/goals/checklists). Describe what you're looking for in natural language; returns the most relevant knowledge snippets. While executing tasks, proactively search relevant knowledge to guide method selection and judging criteria.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "query"
+      ],
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Question or topic to search, described in natural language"
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Number of results, default 5"
+        }
+      }
+    }
+  },
+  "search_task_worker_traces": {
+    "description": "Search all works' execution processes by keyword in a specified task (returns matching step summaries + intent_id).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "task_id",
+        "q"
+      ],
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "Search keyword"
+        },
+        "task_id": {
+          "type": "string",
+          "description": "Task id"
+        }
+      }
+    }
+  },
+  "spawn_task": {
+    "description": "Create a new subtask and start the exploration engine; returns task_id. Use to spin one item (e.g. a challenge/a goal) into an independent task. parent_ref optional: fill in the parent task id of the current orchestration association for parent-child linking.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "description",
+        "goal"
+      ],
+      "properties": {
+        "goal": {
+          "type": "string",
+          "description": "Task goal (what to achieve)"
+        },
+        "parent_ref": {
+          "type": "string",
+          "description": "Optional: parent task id (for parent-child linking)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Task description (short title)"
+        },
+        "llm_profile_id": {
+          "type": "integer",
+          "description": "Optional: LLM profile id for this subtask's planner/worker (see list_llm_profiles); if empty, inherits the parent task, falling back to the global active profile"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "description": "Optional: task-level timeout (seconds). When reached, triggers graceful wrap-up and enters the timeout terminal state; empty or 0 = no limit"
+        }
+      }
+    }
+  },
+  "steer_work": {
+    "description": "Inject a course-correction instruction into a running intent (work) in real time without interrupting it or losing existing progress: the worker receives your instruction before its next action and adjusts accordingly. Use for [within-intent] corrections like 'stop going down X, focus on Y'; if the direction is entirely wrong, use kill_work and issue a new intent instead. Recommended to check what it's doing with get_worker_output first.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "intent_id",
+        "message"
+      ],
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "Course-correction instruction for the worker; make explicit what to stop and what to pivot to"
+        },
+        "intent_id": {
+          "type": "integer",
+          "description": "Intent id to correct (= work handle)"
+        }
+      }
+    }
+  },
+  "traffic_get": {
+    "description": "Fetch the raw request/response of a captured traffic entry by id (truncated if too large). Use together with traffic_search to avoid duplicate curls.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The id returned by traffic_search"
+        }
+      }
+    }
+  },
+  "traffic_search": {
+    "description": "Query target traffic captured by the recording proxy (host must be specified; optionally further filter by URL substring). Returns only an ultra-light index (id/method/url/status/resp_len) with no response content. Defaults to 3 results, at most 10 per page; use page to paginate when there are many results (page starts at 0); use traffic_get(id) to view an entry's raw request/response. Use this first when revisiting accessed resources or finding endpoints, to avoid re-curling the same URL.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "host"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Filter by host (required, e.g. '192.168.1.100:8082')"
+        },
+        "page": {
+          "type": "integer",
+          "description": "Page number, starting from 0, default 0 (paginated by ts descending)"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "Entries per page, default 3, max 10"
+        },
+        "contains": {
+          "type": "string",
+          "description": "URL substring filter (optional, e.g. 'api' / 'login')"
+        }
+      }
+    }
+  },
+  "update_custom_tool": {
+    "description": "Modify an existing custom tool (by key).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "key",
+        "kind"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Key of the custom tool to modify"
+        },
+        "exec": {
+          "type": "object",
+          "description": "Execution spec (not needed for shell): command→{command}; script→{code}; http→{method,url,headers,body,proxy,use_recording_proxy}"
+        },
+        "kind": {
+          "type": "string",
+          "description": "shell | command | script (Python only) | http. shell = bash environment declaration (merely informs the model the tool can be invoked directly in bash, no exec/schema needed); the other three require exec"
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Bound agent keys (optional)"
+        },
+        "schema": {
+          "type": "object",
+          "description": "Parameter JSON-Schema (may be empty for shell/command/script; required for http and must contain properties)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether enabled (default true)"
+        },
+        "deferred": {
+          "type": "boolean",
+          "description": "Whether deferred (no effect for shell; enable only for infrequently used command/script/http tools)"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description sent to the model"
+        }
+      }
+    }
+  },
+  "update_mcp": {
+    "description": "Modify an existing MCP server (by id).",
+    "schema": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "transport"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "description": "MCP server id to modify"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables {KEY:VALUE}"
+        },
+        "url": {
+          "type": "string",
+          "description": "URL for http/sse"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Command argument array"
+        },
+        "name": {
+          "type": "string",
+          "description": "MCP server name"
+        },
+        "command": {
+          "type": "string",
+          "description": "Launch command for stdio (e.g. npx)"
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether enabled (default true)"
+        },
+        "transport": {
+          "type": "string",
+          "description": "stdio | http / sse"
+        }
+      }
+    }
+  },
+  "update_skill_file": {
+    "description": "Write/overwrite a file inside a skill (defaults to SKILL.md). Use to modify skill content or add scripts/references.",
+    "schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "content"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Relative path (optional, defaults to SKILL.md, e.g. scripts/run.py)"
+        },
+        "name": {
+          "type": "string",
+          "description": "Skill name"
+        },
+        "content": {
+          "type": "string",
+          "description": "Full file content"
+        }
+      }
+    }
+  }
+}
