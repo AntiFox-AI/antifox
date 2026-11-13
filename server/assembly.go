@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"antifox/engine/skill"
-	actool "antifox/engine/tool"
 	"antifox/agent"
 	"antifox/db"
+	"antifox/engine/skill"
+	actool "antifox/engine/tool"
 	"antifox/traffic"
 )
 
@@ -157,7 +157,7 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				if !contains(boundAgents, a.Key) {
 					continue // only defer names this agent is actually bound to
 				}
-				allNames = append(allNames, name)    // schema withheld from the prompt
+				allNames = append(allNames, name)       // schema withheld from the prompt
 				globalNames = append(globalNames, name) // advertised in the deferred block
 				globalSet[name] = true
 				if unlock != nil {
@@ -193,8 +193,9 @@ func idSet(ids []int64) map[int64]bool {
 // agent_prompts on startup — first-insert only (SeedPromptIfEmpty is a no-op once
 // any version exists), so the DB becomes the authoritative editable source while
 // user edits survive restarts. Runs after seedBuiltins has created the agent rows.
-func seedPrompts(pg *db.DB) {
-	for key, tmpl := range agent.BuiltinPromptSeeds() {
+// lang selects the seeded variant (zh-CN default; en-US seeds the English bodies).
+func seedPrompts(pg *db.DB, lang string) {
+	for key, tmpl := range agent.BuiltinPromptSeedsFor(lang) {
 		a, err := pg.GetAgentByKey(key)
 		if err != nil || a == nil {
 			log.Printf("[prompts] seed %s 跳过: agent 不存在 (%v)", key, err)
@@ -211,11 +212,13 @@ func seedPrompts(pg *db.DB) {
 // tool-assembly time each built-in tool is filtered by its agent binding / enabled
 // flag and, if kept, wrapped so the model sees the DB-overridden description/schema
 // and缺省入参 get injected. MCP/skill/host tools have no row and pass through.
-func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
+func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool, lang string) {
 	// Seed the built-in domain tools (first-insert only; DO NOTHING preserves edits).
 	// No startup prune: rows we didn't seed are left alone so future user-defined
 	// custom tools (system=false, added via the UI) survive restarts.
+	// lang swaps in the English description/schema overlay at seed time.
 	for _, s := range agent.BuiltinToolSeeds() {
+		s = agent.SeedInLanguage(s, lang)
 		schema, _ := json.Marshal(s.Schema)
 		agents, _ := json.Marshal(s.Agents)
 		if err := pg.SeedTool(s.Key, s.Desc, schema, agents); err != nil {
@@ -228,8 +231,14 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 	// capture is on), so an off-capture binding simply never surfaces the tool.
 	trafficAgents, _ := json.Marshal([]string{"worker"})
 	for _, t := range traffic.SeedToolMetas() {
-		schema, _ := json.Marshal(t.InputSchema())
-		if err := pg.SeedTool(t.Name(), t.Description(), schema, trafficAgents); err != nil {
+		desc, schema := t.Description(), t.InputSchema()
+		if lang == "en-US" {
+			if d, sc, ok := agent.EnglishToolVariant(t.Name()); ok {
+				desc, schema = d, sc
+			}
+		}
+		schemaJSON, _ := json.Marshal(schema)
+		if err := pg.SeedTool(t.Name(), desc, schemaJSON, trafficAgents); err != nil {
 			log.Printf("[tools] seed %s 失败: %v", t.Name(), err)
 		}
 	}

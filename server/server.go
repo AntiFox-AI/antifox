@@ -17,12 +17,12 @@ import (
 	"sync"
 	"time"
 
+	"antifox/agent"
+	"antifox/db"
 	"antifox/engine/llm"
 	"antifox/engine/memory"
 	actool "antifox/engine/tool"
 	"antifox/engine/transcript"
-	"antifox/agent"
-	"antifox/db"
 	"antifox/llmpool"
 	"antifox/report"
 	"antifox/traffic"
@@ -139,9 +139,12 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 	s.llmHealth = newLLMHealthRegistry(m.pg) // process-wide LLM circuit breaker (restores cooling windows)
 	// 多用户 RBAC：首启迁移旧单用户密码为内置 admin + 播种角色/权限（幂等）。
 	s.bootstrapRBAC()
+	// Content language for seeded prompts/tools/skills (zh-CN default; en-US optional).
+	// Read BEFORE any seeding below so a fresh install seeds one language, once.
+	contentLang := s.readContentLang()
 	// 内置 skill 库：把 embed 进二进制的默认 skill 物化到 skillDir（仅缺失时写）。
 	// 单二进制自包含，云/客户现场部署首启即有全套 skill，不依赖 dev 机文件。
-	materializeEmbeddedSkills(skillDir)
+	materializeEmbeddedSkills(skillDir, contentLang)
 	// 报告生成 skill：把内置骨架/prompt 落成可编辑文件（仅缺失时写，不覆盖用户编辑）。
 	if err := report.SeedSkillFiles(skillDir); err != nil {
 		log.Printf("[report] seed skill files: %v", err)
@@ -202,11 +205,11 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
 		domainReg := buildDomainReg(m.Assets())
-		wireTools(m.pg, domainReg)                      // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
-		seedPrompts(m.pg)                               // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
-		s.seedOrchestrationTools()                      // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
-		s.seedPythonInterpreter()                       // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
-		go newScheduler(s).Run(s.ctx)                   // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
+		wireTools(m.pg, domainReg, contentLang) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
+		seedPrompts(m.pg, contentLang)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
+		s.seedOrchestrationTools()              // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
+		s.seedPythonInterpreter()               // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
+		go newScheduler(s).Run(s.ctx)           // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
 		// Fill the tool cache for any enabled MCP that has none yet (notably the
 		// seeded browser MCP on first run). Async so it never blocks startup.
 		go s.discoverEmptyMCPsOnStartup()
@@ -896,8 +899,8 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		active = t.ID
 	}
 	list := s.m.List()
-	toks, _ := s.m.PG().TokenTotalsAll()     // whole-task token totals, one query for all tasks
-	lastAct, _ := s.m.PG().LastActivityAll() // persisted last-activity per task, one query
+	toks, _ := s.m.PG().TokenTotalsAll()      // whole-task token totals, one query for all tasks
+	lastAct, _ := s.m.PG().LastActivityAll()  // persisted last-activity per task, one query
 	goalCounts, _ := s.m.PG().GoalCountsAll() // goal progress per exploration, one query
 	dtos := make([]TaskDTO, 0, len(list))
 	for _, t := range list {
@@ -1308,8 +1311,6 @@ func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, t)
 }
 
-
-
 func (s *Server) frontier(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
@@ -1669,7 +1670,6 @@ func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"detail": d})
 }
 
-
 // parseTrafficFilter 从查询串解析高级筛选（路径 / 状态码桶 2xx..5xx / 响应长度区间）。
 func parseTrafficFilter(q url.Values) traffic.TrafficFilter {
 	f := traffic.TrafficFilter{
@@ -1756,13 +1756,13 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{
-		"enabled":       s.m.TrafficEnabled(), // reflect the capture toggle
-		"proxy":         s.m.ProxyAddr(),
-		"count":         count,   // total recorded (unfiltered)
-		"total":         matched, // rows matching the current filter (for pagination)
-		"page":          page,
-		"size":          size,
-		"exchanges":     dtos,
+		"enabled":        s.m.TrafficEnabled(), // reflect the capture toggle
+		"proxy":          s.m.ProxyAddr(),
+		"count":          count,   // total recorded (unfiltered)
+		"total":          matched, // rows matching the current filter (for pagination)
+		"page":           page,
+		"size":           size,
+		"exchanges":      dtos,
 		"status_buckets": buckets, // {2:N,3:N,4:N,5:N} — true distribution for the dashboard
 	})
 }
@@ -1817,19 +1817,33 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.settingsPayload())
 }
 
+// readContentLang resolves the content language from settings, defaulting to
+// zh-CN. Unknown values also fall back to zh-CN so a bad row never breaks boot.
+func (s *Server) readContentLang() string {
+	if v, ok, err := s.m.pg.GetSetting(settingContentLang); err == nil && ok {
+		for _, l := range ContentLangs {
+			if v == l {
+				return v
+			}
+		}
+	}
+	return ContentLangs[0]
+}
+
 func (s *Server) settingsPayload() map[string]any {
 	on, backend, braveKey, tavilyKey, proxy := s.m.WebSearch()
 	pyStored, _, _ := s.m.pg.GetSetting(settingPythonInterp)
 	return map[string]any{
-		"traffic_capture":     s.m.TrafficEnabled(),
-		"web_search_enabled":  on,
-		"web_search_backend":  backend,
-		"brave_key_set":       strings.TrimSpace(braveKey) != "",
-		"tavily_key_set":      strings.TrimSpace(tavilyKey) != "",
-		"web_search_proxy":    proxy,                       // 独立出口代理(http/https/socks5)，空=直连
-		"global_proxy":        s.m.GlobalProxy(),           // 全局出口代理：agent 目标流量经它出网(作 MITM 上游)，空=直连
-		"python_interpreter":  strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
-		"workers":             s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
+		"traffic_capture":    s.m.TrafficEnabled(),
+		"web_search_enabled": on,
+		"web_search_backend": backend,
+		"brave_key_set":      strings.TrimSpace(braveKey) != "",
+		"tavily_key_set":     strings.TrimSpace(tavilyKey) != "",
+		"web_search_proxy":   proxy,                       // 独立出口代理(http/https/socks5)，空=直连
+		"global_proxy":       s.m.GlobalProxy(),           // 全局出口代理：agent 目标流量经它出网(作 MITM 上游)，空=直连
+		"python_interpreter": strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
+		"workers":            s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
+		"content_lang":       s.readContentLang(),         // 播种内容语言(提示词/工具描述/skill)；改后经 reset/新装生效
 	}
 }
 
@@ -1863,10 +1877,28 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		GlobalProxy      *string `json:"global_proxy"`       // 全局出口代理(http/https/socks5)；null=不改，""=清空(直连)
 		PythonInterp     *string `json:"python_interpreter"` // 自定义脚本工具的 python 解释器路径
 		Workers          *int    `json:"workers"`            // 并发工作 agent 数(>0)；对之后启动的任务生效
+		ContentLang      *string `json:"content_lang"`       // 播种内容语言 zh-CN|en-US；null=不改
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if req.ContentLang != nil {
+		valid := false
+		for _, l := range ContentLangs {
+			if *req.ContentLang == l {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			writeErr(w, 400, "content_lang must be one of "+strings.Join(ContentLangs, ", "))
+			return
+		}
+		if err := s.m.pg.SetSetting(settingContentLang, *req.ContentLang); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 	}
 	if req.Workers != nil {
 		if err := s.m.SetWorkers(*req.Workers); err != nil {

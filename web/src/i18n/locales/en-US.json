@@ -1267,6 +1267,13 @@
       "desc": "The number of work agents running concurrently per task (default 3). Higher values mean more concurrent probing but higher cost. Changes <b>take effect for tasks started afterward</b>; running tasks are unaffected.",
       "errInvalid": "Concurrency must be an integer greater than 0",
       "saved": "Concurrent work agent count saved (takes effect for tasks started afterward)"
+    },
+    "contentLang": {
+      "title": "Content Language (prompts / tools / skills)",
+      "desc": "The language used to seed the built-in agent prompts, tool descriptions, and the built-in skill library. Each install seeds only the selected language — no mixed-language content.",
+      "label": "Content language",
+      "hint": "Applies to content seeded from now on: a fresh install initializes in this language directly; an already-initialized instance can use “Reset to default” on each agent prompt / tool to apply the new language. The UI display language is switched separately at the bottom-left.",
+      "saved": "Content language saved"
     }
   },
   "logs": {

@@ -19,9 +19,9 @@ import (
 	"text/template/parse"
 	"time"
 
-	"antifox/engine/skill"
 	"antifox/agent"
 	"antifox/db"
+	"antifox/engine/skill"
 )
 
 // reSkillName is the base character-set pattern; validSkillName enforces
@@ -130,7 +130,7 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// starter prompt so the editor shows something editable from the start.
-	if err := pg.SeedPromptIfEmpty(a.ID, agent.DefaultAssistantPrompt); err != nil {
+	if err := pg.SeedPromptIfEmpty(a.ID, agent.DefaultAssistantPromptFor(s.readContentLang())); err != nil {
 		log.Printf("[agents] seed starter prompt for %s 失败: %v", a.Key, err)
 	}
 	writeJSON(w, 200, agentDTO(a))
@@ -336,7 +336,7 @@ func (s *Server) pgResetPrompt(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	tmpl, has := agent.BuiltinPromptSeeds()[a.Key]
+	tmpl, has := agent.BuiltinPromptSeedsFor(s.readContentLang())[a.Key]
 	if !has {
 		writeErr(w, 400, "该 agent 无内置默认提示词，无法恢复")
 		return
@@ -603,6 +603,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 		if sd.Key != key {
 			continue
 		}
+		sd = agent.SeedInLanguage(sd, s.readContentLang())
 		schema, _ := json.Marshal(sd.Schema)
 		agents, _ := json.Marshal(sd.Agents)
 		if err := pg.UpsertToolForce(sd.Key, sd.Desc, schema, agents); err != nil {

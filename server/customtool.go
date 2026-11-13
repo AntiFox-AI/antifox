@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
+	"antifox/db"
 	"antifox/engine/permission"
 	actool "antifox/engine/tool"
-	"antifox/db"
 )
 
 // 本文件实现自定义工具执行器(docs/自定义工具设计.md)。system=false 的 tools 行按
@@ -196,6 +196,14 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 // ---------- Python 解释器(检测 + 入库 + 覆盖) ----------
 
 const settingPythonInterp = "python_interpreter"
+
+// settingContentLang stores the CONTENT language ("zh-CN" | "en-US") used to seed
+// built-in prompts, tool descriptions and skill files. Separate from the browser
+// UI locale: seeded content is server-side and shared by all clients.
+const settingContentLang = "content_lang"
+
+// ContentLangs lists the supported content languages (first = default).
+var ContentLangs = []string{"zh-CN", "en-US"}
 
 // detectPython finds a python interpreter absolute path (python3 preferred).
 func detectPython() string {
