@@ -105,7 +105,7 @@ func run() int {
 	if abs, err := filepath.Abs(skillDir); err == nil {
 		skillDir = abs
 	}
-	log.Printf("[config] skill 目录: %s", skillDir)
+	log.Printf("[config] skill dir: %s", skillDir)
 	srv := server.New(ctx, mgr, skillDir, *dataDir)
 	httpSrv := &http.Server{
 		Addr:              *addr,
