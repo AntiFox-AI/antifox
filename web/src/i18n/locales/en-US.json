@@ -1812,6 +1812,7 @@
   "mcp": {
     "subtitle": "External MCP tool servers · visible per Agent authorization",
     "secretEditHint": "Saved environment variables and headers are not displayed. Leave blank to keep them, or enter a complete replacement. Changing the endpoint or command clears values left blank.",
+    "clearSaved": "Clear saved values (sent as empty)",
     "addCard": "Add MCP",
     "addServer": "Add MCP Server",
     "dialogDesc": "stdio (local process) or http (remote Streamable HTTP)",

@@ -145,6 +145,9 @@ func (s *Server) syncSSDatasource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.URL != "" {
+		if body.URL != m.URL {
+			m.Headers = json.RawMessage(`{}`)
+		}
 		m.URL = body.URL
 	}
 	if body.APIKey != "" {

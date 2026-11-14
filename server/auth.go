@@ -36,6 +36,14 @@ type ctxKey int
 
 const accessCtxKey ctxKey = 1
 
+// adminRunCtxKey marks an agent run started by an admin session.
+const adminRunCtxKey ctxKey = 2
+
+func ctxIsAdmin(ctx context.Context) bool {
+	v, _ := ctx.Value(adminRunCtxKey).(bool)
+	return v
+}
+
 // authClaims 携带用户 id(Subject) + 用户名 + 签发时的密码版本（token_version）。
 // Ver 让「改密/停用即踢下线」成立：校验时与库里当前 token_version 比对，不等即拒。
 type authClaims struct {
