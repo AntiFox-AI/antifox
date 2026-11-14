@@ -644,6 +644,10 @@ func (s *Server) pgListMCP(w http.ResponseWriter, r *http.Request) {
 	if ms == nil {
 		ms = []*db.MCPServer{}
 	}
+	for _, m := range ms {
+		m.Env = nil
+		m.Headers = nil
+	}
 	writeJSON(w, 200, map[string]any{"servers": ms})
 }
 
@@ -655,6 +659,10 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 	var m db.MCPServer
 	if err := decode(r, &m); err != nil {
 		writeErr(w, 400, err.Error())
+		return
+	}
+	if m.ID != 0 && !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可修改已有 MCP 配置")
 		return
 	}
 	// stdio MCP 由服务端把 command/args 作为子进程拉起，等价于宿主机命令执行——收归 admin。

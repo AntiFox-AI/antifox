@@ -1811,6 +1811,8 @@
   },
   "mcp": {
     "subtitle": "外部 MCP 工具服务器 · 按 Agent 授权可见",
+    "secretEditHint": "已保存的环境变量和请求头不会显示。留空时保持不变；填写时替换整组。更改服务地址或启动命令时，留空将清除原有值。",
+    "clearSaved": "清除已保存的值",
     "addCard": "添加 MCP",
     "addServer": "添加 MCP 服务器",
     "dialogDesc": "stdio（本地起进程）或 http（远程 Streamable HTTP）",

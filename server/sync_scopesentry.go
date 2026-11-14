@@ -116,6 +116,10 @@ func (s *Server) syncSSStatus(w http.ResponseWriter, r *http.Request) {
 // Creates the placeholder row if missing, and/or sets URL + API key and enables it.
 
 func (s *Server) syncSSDatasource(w http.ResponseWriter, r *http.Request) {
+	if !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可修改数据源配置")
+		return
+	}
 	pg := s.pg(w)
 	if pg == nil {
 		return
@@ -136,7 +140,14 @@ func (s *Server) syncSSDatasource(w http.ResponseWriter, r *http.Request) {
 	if m == nil {
 		m = &db.MCPServer{Name: scopeSentryMCPName, Transport: "http", Env: json.RawMessage(`{"X-API-Key":""}`)}
 	}
+	if body.URL != "" && body.URL != m.URL && body.APIKey == "" && (envHasValue(m.Env) || envHasValue(m.Headers)) {
+		writeErr(w, 400, "修改数据源地址时需要重新输入 API Key")
+		return
+	}
 	if body.URL != "" {
+		if body.URL != m.URL {
+			m.Headers = json.RawMessage(`{}`)
+		}
 		m.URL = body.URL
 	}
 	if body.APIKey != "" {

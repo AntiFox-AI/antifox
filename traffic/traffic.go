@@ -154,7 +154,13 @@ func hostOnly(hostport string) string {
 }
 
 // ProxyAddr returns the address workers should set as HTTP(S)_PROXY.
-func (t *Traffic) ProxyAddr() string { return "http://127.0.0.1" + t.addr }
+// t.addr may be ":port" or a full "host:port".
+func (t *Traffic) ProxyAddr() string {
+	if strings.HasPrefix(t.addr, ":") {
+		return "http://127.0.0.1" + t.addr
+	}
+	return "http://" + t.addr
+}
 
 // SetUpstream points every captured target request at a global egress proxy
 // (http/https/socks5), or restores direct dialing when raw is empty. Hot-swappable at

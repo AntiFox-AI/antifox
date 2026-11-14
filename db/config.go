@@ -575,16 +575,21 @@ ON CONFLICT (server_id, tool_name) DO UPDATE SET description=EXCLUDED.descriptio
 func (d *DB) SaveMCP(m *MCPServer) (int64, error) {
 	args, env, hdrs := string(m.Args), string(m.Env), string(m.Headers)
 	if args == "" { args = "[]" }
-	if env == "" { env = "{}" }
-	if hdrs == "" { hdrs = "{}" }
 	if m.ID == 0 {
+		if env == "" || env == "null" { env = "{}" }
+		if hdrs == "" || hdrs == "null" { hdrs = "{}" }
 		var id int64
 		err := d.QueryRow(`INSERT INTO mcp_servers(name,transport,command,args,env,headers,url,description,timeout_seconds,enabled)
 			VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,NULLIF($7,''),$8,$9,$10) RETURNING id`,
 			m.Name, m.Transport, m.Command, args, env, hdrs, m.URL, m.Description, m.TimeoutSeconds, m.Enabled).Scan(&id)
 		return id, err
 	}
-	_, err := d.Exec(`UPDATE mcp_servers SET name=$1,transport=$2,command=NULLIF($3,''),args=$4,env=$5,headers=$6,url=NULLIF($7,''),description=$8,timeout_seconds=$9,enabled=$10 WHERE id=$11`,
+	_, err := d.Exec(`UPDATE mcp_servers SET name=$1,transport=$2,command=NULLIF($3,''),args=$4,
+		env=CASE WHEN $5 <> '' AND $5 <> 'null' THEN $5::jsonb
+			WHEN transport=$2 AND COALESCE(command,'')=$3 AND args=$4::jsonb AND COALESCE(url,'')=$7 THEN env ELSE '{}'::jsonb END,
+		headers=CASE WHEN $6 <> '' AND $6 <> 'null' THEN $6::jsonb
+			WHEN transport=$2 AND COALESCE(command,'')=$3 AND args=$4::jsonb AND COALESCE(url,'')=$7 THEN headers ELSE '{}'::jsonb END,
+		url=NULLIF($7,''),description=$8,timeout_seconds=$9,enabled=$10 WHERE id=$11`,
 		m.Name, m.Transport, m.Command, args, env, hdrs, m.URL, m.Description, m.TimeoutSeconds, m.Enabled, m.ID)
 	return m.ID, err
 }

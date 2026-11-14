@@ -37,6 +37,6 @@ RUN chmod +x /app/antifox
 COPY skills/ /app/skills/
 # data/（SQLite + jwt.key）持久化点
 VOLUME ["/app/data"]
-EXPOSE 8787 8788
+EXPOSE 8787
 ENTRYPOINT ["/app/antifox"]
-CMD ["-addr", ":8787", "-proxy", ":8788"]
+CMD ["-addr", ":8787", "-proxy", "127.0.0.1:8788"]

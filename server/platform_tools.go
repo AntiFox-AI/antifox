@@ -263,7 +263,10 @@ func (s *Server) toolCreateMCP() actool.CoreTool {
 func (s *Server) toolUpdateMCP() actool.CoreTool {
 	return wrTool("update_mcp", "修改一个已有的 MCP 服务器(按 id)。",
 		mcpSchema(true),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			if !ctxIsAdmin(ctx) {
+				return actool.Errorf("仅管理员可修改已有 MCP 配置"), nil
+			}
 			var a mcpToolInput
 			_ = json.Unmarshal(in, &a)
 			if a.ID == 0 {

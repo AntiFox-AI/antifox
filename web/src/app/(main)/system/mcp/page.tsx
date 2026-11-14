@@ -56,6 +56,8 @@ export default function MCPPage() {
 
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<MCPServer | null>(null); // null = add mode
+  const [clearEnv, setClearEnv] = React.useState(false);
+  const [clearHeaders, setClearHeaders] = React.useState(false);
   const [tab, setTab] = React.useState<"config" | "tools">("config");
   const [form, setForm] = React.useState<FormState>(emptyForm);
   const [saving, setSaving] = React.useState(false);
@@ -115,12 +117,6 @@ export default function MCPPage() {
     }
     return out;
   }
-  function envToText(env: Record<string, string> | undefined): string {
-    return Object.entries(env ?? {})
-      .map(([k, v]) => `${k}=${v}`)
-      .join("\n");
-  }
-
   function openAdd() {
     setEditing(null);
     setForm(emptyForm);
@@ -131,14 +127,16 @@ export default function MCPPage() {
 
   function openEdit(s: MCPServer) {
     setEditing(s);
+    setClearEnv(false);
+    setClearHeaders(false);
     setForm({
       name: s.name,
       transport: s.transport,
       command: s.command ?? "",
       args: (s.args ?? []).join(" "),
       url: s.url ?? "",
-      env: envToText(s.env),
-      headers: envToText(s.headers),
+      env: "",
+      headers: "",
       description: s.description ?? "",
       timeoutSeconds: s.timeout_seconds ?? 30,
     });
@@ -180,14 +178,23 @@ export default function MCPPage() {
               url: form.url.trim(),
               command: "",
               args: [] as string[],
-              env: parseEnv(form.env),
-              headers: parseEnv(form.headers),
+              ...(clearEnv ? { env: {} } : form.env.trim() || !editing ? { env: parseEnv(form.env) } : {}),
+              ...(clearHeaders
+                ? { headers: {} }
+                : form.headers.trim() || !editing
+                  ? { headers: parseEnv(form.headers) }
+                  : {}),
             }
           : {
               transport: "stdio" as const,
               command: form.command.trim(),
-              args: form.args.trim() ? form.args.trim().split(/\s+/) : [],
-              env: parseEnv(form.env),
+              args:
+                editing && form.args === (editing.args ?? []).join(" ")
+                  ? (editing.args ?? [])
+                  : form.args.trim()
+                    ? form.args.trim().split(/\s+/)
+                    : [],
+              ...(clearEnv ? { env: {} } : form.env.trim() || !editing ? { env: parseEnv(form.env) } : {}),
             };
       await api.saveMcpServer({
         ...(editing ? { id: editing.id } : {}),
@@ -339,6 +346,13 @@ export default function MCPPage() {
             value={form.env}
             onChange={(e) => setF({ env: e.target.value })}
           />
+          {editing && <p className="text-muted-foreground text-xs">{tr("mcp.secretEditHint")}</p>}
+          {editing && (
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={clearEnv} onChange={(e) => setClearEnv(e.target.checked)} />
+              {tr("mcp.clearSaved")}
+            </label>
+          )}
         </div>
         {form.transport === "http" && (
           <div className="grid gap-2">
@@ -350,6 +364,12 @@ export default function MCPPage() {
               value={form.headers}
               onChange={(e) => setF({ headers: e.target.value })}
             />
+            {editing && (
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={clearHeaders} onChange={(e) => setClearHeaders(e.target.checked)} />
+                {tr("mcp.clearSaved")}
+              </label>
+            )}
           </div>
         )}
         <div className="grid gap-2">
