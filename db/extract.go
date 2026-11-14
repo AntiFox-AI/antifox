@@ -81,13 +81,13 @@ func (d *DB) FindingReproTranscript(nodeID int64, maxChars int) string {
 		// Responses (tool_result) can be huge (full 4KB+ pages); the recipe needs the
 		// status line + a short indicator, not the whole body. Requests kept full.
 		if kind == "tool_result" && len(content) > 700 {
-			content = strings.ToValidUTF8(content[:700], "") + " …(响应已截断)"
+			content = strings.ToValidUTF8(content[:700], "") + " …(response truncated)"
 		}
-		label := "请求"
+		label := "Request"
 		if kind == "tool_result" {
-			label = "响应"
+			label = "Response"
 		} else if kind == "result" {
-			label = "小结"
+			label = "Summary"
 		}
 		hdr := "\n【" + label
 		if tool != "" {

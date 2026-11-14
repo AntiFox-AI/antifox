@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	actool "antifox/engine/tool"
 	"antifox/agent"
 	"antifox/db"
+	actool "antifox/engine/tool"
 )
 
 // hasSkillTool reports whether the packed tool set contains the Skill meta-tool.

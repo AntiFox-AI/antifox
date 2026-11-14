@@ -24,7 +24,7 @@ func TestOpenSeed(t *testing.T) {
 	}
 	defer d.Close()
 
-	wantAgents := len(builtinAgents)
+	wantAgents := len(builtinAgentsZh)
 	var agents int
 	if err := d.QueryRow(`SELECT count(*) FROM agents WHERE builtin`).Scan(&agents); err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestOpenSeed(t *testing.T) {
 
 	// planner should have at least its seeded catalog vars
 	wantPlannerVars := 0
-	for _, a := range builtinAgents {
+	for _, a := range builtinAgentsZh {
 		if a.key == "planner" {
 			wantPlannerVars = len(a.vars)
 			break

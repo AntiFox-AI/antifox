@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	actool "antifox/engine/tool"
 	"antifox/db"
+	actool "antifox/engine/tool"
 	"antifox/knowledge"
 )
 
@@ -94,16 +94,16 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 						"description": "资产类型",
 					},
 					// root_domain / subdomain
-					"domain":       str("根域名或子域名（root_domain/subdomain 必填）"),
-					"icp":          str("ICP 备案号（可选）"),
-					"record_type":  str("DNS 解析类型：A/AAAA/CNAME/MX 等（subdomain 可选）"),
+					"domain":      str("根域名或子域名（root_domain/subdomain 必填）"),
+					"icp":         str("ICP 备案号（可选）"),
+					"record_type": str("DNS 解析类型：A/AAAA/CNAME/MX 等（subdomain 可选）"),
 					"record_value": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
 						"description": "DNS 解析值列表（subdomain 可选，如 [\"1.2.3.4\",\"2.3.4.5\"]）",
 					},
 					// ip
-					"ip":           str("IP 地址（ip 类型必填；service/endpoint 类型可填，用于关联 IP）"),
+					"ip": str("IP 地址（ip 类型必填；service/endpoint 类型可填，用于关联 IP）"),
 					"bound_domains": map[string]any{
 						"type":        "array",
 						"items":       map[string]any{"type": "string"},
@@ -125,8 +125,8 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 					"app_icp":     str("应用 ICP 备案（可选）"),
 					"company_id":  intp("归属企业 id（app 类型可选；app 无法靠 scope 自动归因，需显式指定。id 由 add_company_scope 返回）"),
 					// service (http)
-					"url":           str("完整 URL，含协议和端口（HTTP 服务必填；service_type 自动设为 http）"),
-					"status_code":   intp("HTTP 响应状态码，如 200/301/403/404（可选）"),
+					"url":         str("完整 URL，含协议和端口（HTTP 服务必填；service_type 自动设为 http）"),
+					"status_code": intp("HTTP 响应状态码，如 200/301/403/404（可选）"),
 					"content_length": map[string]any{
 						"type":        "integer",
 						"description": "HTTP 响应体字节数（可选）",
@@ -158,7 +158,7 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 		}, "assets"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {
-				return actool.Errorf("insert_assets 未启用: AssetStore 未初始化"), nil
+				return actool.Errorf(tr("insert_assets 未启用: AssetStore 未初始化", "insert_assets unavailable: AssetStore not initialized")), nil
 			}
 			var a struct {
 				Assets []assetInputItem `json:"assets"`
@@ -305,7 +305,7 @@ func (t *ToolSet) addCompanyScope() actool.CoreTool {
 		}, "company", "scope"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.cs == nil {
-				return actool.Errorf("add_company_scope 未启用: CompanyStore 未初始化"), nil
+				return actool.Errorf(tr("add_company_scope 未启用: CompanyStore 未初始化", "add_company_scope unavailable: CompanyStore not initialized")), nil
 			}
 			var a struct {
 				Company string `json:"company"`
@@ -317,11 +317,11 @@ func (t *ToolSet) addCompanyScope() actool.CoreTool {
 				return actool.Errorf(err.Error()), nil
 			}
 			if strings.TrimSpace(a.Company) == "" {
-				return actool.Errorf("company 不能为空"), nil
+				return actool.Errorf(tr("company 不能为空", "company must not be empty")), nil
 			}
 			companyID, _, err := t.cs.UpsertCompany(a.Company, a.Logo)
 			if err != nil {
-				return actool.Errorf("创建/获取公司失败: " + err.Error()), nil
+				return actool.Errorf(tr("创建/获取公司失败: ", "failed to create/get company: ") + err.Error()), nil
 			}
 			lines := splitLines(a.Scope)
 			added, skipped, invalid, errMsgs := t.cs.AddScope(companyID, lines, a.Reason)
@@ -379,7 +379,7 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {
-				return actool.Errorf("list_assets 未启用: AssetStore 未初始化"), nil
+				return actool.Errorf(tr("list_assets 未启用: AssetStore 未初始化", "list_assets unavailable: AssetStore not initialized")), nil
 			}
 			var a struct {
 				DSL    string  `json:"dsl"`
@@ -404,10 +404,10 @@ func (t *ToolSet) listAssets() actool.CoreTool {
 			case a.DSL != "":
 				assets, err = t.as.QueryDSL(a.DSL, a.Type, a.Limit, a.Offset)
 			default:
-				return actool.Errorf("未传 id/ids 时 dsl 不能为空：不允许无条件查询全部资产，请提供查询条件"), nil
+				return actool.Errorf(tr("未传 id/ids 时 dsl 不能为空：不允许无条件查询全部资产，请提供查询条件", "dsl must not be empty when no id/ids is given: unconditional queries of all assets are not allowed; provide a query condition")), nil
 			}
 			if err != nil {
-				return actool.Errorf("DSL 错误: " + err.Error()), nil
+				return actool.Errorf(tr("DSL 错误: ", "DSL error: ") + err.Error()), nil
 			}
 			return jsonResult(map[string]any{
 				"count":  len(assets),
@@ -429,7 +429,7 @@ func (t *ToolSet) listCompanies() actool.CoreTool {
 		}),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.cs == nil {
-				return actool.Errorf("list_companies 未启用: CompanyStore 未初始化"), nil
+				return actool.Errorf(tr("list_companies 未启用: CompanyStore 未初始化", "list_companies unavailable: CompanyStore not initialized")), nil
 			}
 			var a struct {
 				Search string `json:"search"`
@@ -437,7 +437,7 @@ func (t *ToolSet) listCompanies() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			cos, err := t.cs.ListCompanies()
 			if err != nil {
-				return actool.Errorf("查询公司失败: " + err.Error()), nil
+				return actool.Errorf(tr("查询公司失败: ", "failed to query companies: ") + err.Error()), nil
 			}
 			q := strings.ToLower(strings.TrimSpace(a.Search))
 			type companyOut struct {

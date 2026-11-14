@@ -318,12 +318,34 @@ func ruleMatches(r compiledRule, toolName string, input []byte) bool {
 	return strings.Contains(subject, r.Pattern)
 }
 
+// contentLang mirrors the server's content_lang setting ("zh-CN" default |
+// "en-US"); set once at boot via SetContentLang. Controls the language of
+// model/user-visible intercept messages.
+var contentLang = "zh-CN"
+
+// SetContentLang sets the language for intercept messages (normalized:
+// anything other than "en-US" falls back to "zh-CN").
+func SetContentLang(l string) {
+	if l == "en-US" {
+		contentLang = "en-US"
+	} else {
+		contentLang = "zh-CN"
+	}
+}
+
+func tr(zh, en string) string {
+	if contentLang == "en-US" {
+		return en
+	}
+	return zh
+}
+
 func defaultMessage(action, name string) string {
 	switch action {
 	case "deny":
-		return "拦截规则 [" + name + "] 禁止执行此工具"
+		return tr("拦截规则 ["+name+"] 禁止执行此工具", "Intercept rule ["+name+"] blocks this tool")
 	case "ask":
-		return "拦截规则 [" + name + "] 要求用户审批，请等待"
+		return tr("拦截规则 ["+name+"] 要求用户审批，请等待", "Intercept rule ["+name+"] requires user approval — wait for the decision")
 	default:
 		return ""
 	}
@@ -353,9 +375,12 @@ func (i *Interceptor) HandleAsk(ctx context.Context, convID int64, dec Decision,
 		"input":      json.RawMessage(input),
 	})
 	activity := db.Activity{
-		Kind:    "intercept_request",
-		Summary: fmt.Sprintf("工具 %s 请求审批 (#%d)", toolName, pendingID),
-		Detail:  string(detail),
+		Kind: "intercept_request",
+		Summary: tr(
+			fmt.Sprintf("工具 %s 请求审批 (#%d)", toolName, pendingID),
+			fmt.Sprintf("Tool %s requests approval (#%d)", toolName, pendingID),
+		),
+		Detail: string(detail),
 	}
 
 	if convID != 0 {

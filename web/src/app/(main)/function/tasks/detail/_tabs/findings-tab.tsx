@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import type { Finding } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { dateLocale } from "@/lib/locale";
 function Row({ f, onChanged }: { f: Finding; onChanged: () => void }) {
   const [open, setOpen] = React.useState(false);
   const name = f.enr_name || f.vulnclass;
@@ -32,7 +33,7 @@ function Row({ f, onChanged }: { f: Finding; onChanged: () => void }) {
           <span className="font-medium">{name}</span>
           <span className="text-muted-foreground ml-2 text-xs">{f.summary}</span>
         </span>
-        <span className="shrink-0 text-xs text-muted-foreground">{new Date(f.ts).toLocaleString("zh-CN")}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">{new Date(f.ts).toLocaleString(dateLocale())}</span>
       </button>
       {open && (
         <div className="bg-muted/30 px-4 pb-4 pl-11">

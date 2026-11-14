@@ -12,8 +12,9 @@ import { api } from "@/lib/api";
 import type { TrafficDetail, TrafficExchange } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { dateLocale } from "@/lib/locale";
 function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN", {
+  return new Date(ts).toLocaleString(dateLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

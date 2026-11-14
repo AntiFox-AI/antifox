@@ -114,12 +114,12 @@ func nodeIDFromPath(r *http.Request) (int64, bool) {
 func (s *Server) findingDetail(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	f, err := s.m.pg.GetFindingByNodeID(id)
 	if err != nil || f == nil {
-		writeErr(w, 404, "未找到漏洞")
+		s.writeErrL(w, 404, "Finding not found", "未找到漏洞")
 		return
 	}
 	enr, _ := s.m.pg.GetFindingEnrichment(id)
@@ -252,7 +252,7 @@ func (s *Server) findingSetupTraffic(taskID int64) string {
 			if e != nil {
 				continue
 			}
-			fmt.Fprintf(&b, "\n### %s %s (HTTP %d)\n[请求]\n%s\n[响应]\n%s\n", ex.Method, ex.URL, ex.Status, clipUTF8(req, 1400), clipUTF8(resp, 900))
+			fmt.Fprintf(&b, "\n### %s %s (HTTP %d)\n[Request]\n%s\n[Response]\n%s\n", ex.Method, ex.URL, ex.Status, clipUTF8(req, 1400), clipUTF8(resp, 900))
 		}
 	}
 	return b.String()
@@ -273,12 +273,12 @@ type enrichJob struct {
 func (s *Server) findingEnrich(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	f, err := s.m.pg.GetFindingByNodeID(id)
 	if err != nil || f == nil {
-		writeErr(w, 404, "未找到漏洞")
+		s.writeErrL(w, 404, "Finding not found", "未找到漏洞")
 		return
 	}
 	company := strings.TrimSpace(r.URL.Query().Get("company"))
@@ -306,7 +306,7 @@ func (s *Server) findingEnrich(w http.ResponseWriter, r *http.Request) {
 func (s *Server) findingEnrichStatus(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	s.enrichMu.Lock()
@@ -336,7 +336,7 @@ func (s *Server) runEnrich(id int64, f *db.DBFinding, locale, company string) {
 	}
 	defer func() {
 		if rec := recover(); rec != nil {
-			fail(fmt.Sprintf("AI 分析异常：%v", rec))
+			fail(fmt.Sprintf("AI analysis panic: %v", rec))
 		}
 	}()
 	in := report.FindingInput{VulnClass: f.VulnClass, Severity: f.Severity, Summary: f.Summary, PoC: f.Evidence, CreatedAt: f.CreatedAt, Reproduction: f.Reproduction}
@@ -349,7 +349,7 @@ func (s *Server) runEnrich(id int64, f *db.DBFinding, locale, company string) {
 	in.Transcript = s.m.pg.FindingReproTranscript(id, 22000)
 	enr := report.EnrichFinding(s.ctx, s.m.pg, s.skillDir, locale, in, company)
 	if strings.TrimSpace(enr.Title) == "" && len(enr.Description) == 0 {
-		fail("AI 分析失败（未配置 LLM 或模型未返回内容，可能超时）")
+		fail("AI analysis failed (LLM not configured or model returned no content, possibly timed out)")
 		return
 	}
 	row := dbEnrichmentFromReport(id, enr)
@@ -358,7 +358,7 @@ func (s *Server) runEnrich(id int64, f *db.DBFinding, locale, company string) {
 		row.Status = prev.Status
 	}
 	if err := s.m.pg.UpsertFindingEnrichment(row); err != nil {
-		fail("保存失败: " + err.Error())
+		fail("Save failed: " + err.Error())
 		return
 	}
 	saved, _ := s.m.pg.GetFindingEnrichment(id)
@@ -391,7 +391,7 @@ func enrichmentHasProse(e *db.FindingEnrichment) bool {
 func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 	id, ok := nodeIDFromPath(r)
 	if !ok {
-		writeErr(w, 400, "无效的 finding id")
+		s.writeErrL(w, 400, "Invalid finding id", "无效的 finding id")
 		return
 	}
 	var body struct {
@@ -402,12 +402,12 @@ func (s *Server) findingUpdate(w http.ResponseWriter, r *http.Request) {
 		Locale   string `json:"locale"` // 自动富化用的报告语言（可选，前端传 i18n.language）
 	}
 	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, "请求格式错误")
+		s.writeErrL(w, 400, "Invalid request body", "请求格式错误")
 		return
 	}
 	if err := s.m.pg.UpdateFindingEnrichmentFields(id, strings.TrimSpace(body.Name),
 		strings.TrimSpace(body.Target), strings.TrimSpace(body.Severity), strings.TrimSpace(body.Status)); err != nil {
-		writeErr(w, 500, "保存失败: "+err.Error())
+		s.writeErrL(w, 500, "Save failed: "+err.Error(), "保存失败: "+err.Error())
 		return
 	}
 	saved, _ := s.m.pg.GetFindingEnrichment(id)

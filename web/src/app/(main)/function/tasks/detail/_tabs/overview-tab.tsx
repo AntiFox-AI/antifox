@@ -22,6 +22,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { api } from "@/lib/api";
 import type { Task, Stats, TaskNode, Finding } from "@/lib/types";
 
+import { dateLocale } from "@/lib/locale";
 function StatCard({
   label,
   value,
@@ -123,7 +124,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
             <div className="mt-1 inline-flex items-center gap-1 text-sm">
               <ClockIcon className="size-3.5" />
               {task?.last_activity
-                ? new Date(task.last_activity).toLocaleTimeString("zh-CN")
+                ? new Date(task.last_activity).toLocaleTimeString(dateLocale())
                 : "—"}
             </div>
           </div>
@@ -138,7 +139,7 @@ export function OverviewTab({ taskId }: { taskId: string }) {
               <div className="text-xs text-muted-foreground">{t("taskDetail.overview.completedAt")}</div>
               <div className="mt-1 inline-flex items-center gap-1 text-sm">
                 <ClockIcon className="size-3.5" />
-                {new Date(task.completed_unix * 1000).toLocaleString("zh-CN")}
+                {new Date(task.completed_unix * 1000).toLocaleString(dateLocale())}
               </div>
             </div>
           ) : null}

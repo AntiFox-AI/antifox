@@ -19,9 +19,9 @@ import (
 	"text/template/parse"
 	"time"
 
-	"antifox/engine/skill"
 	"antifox/agent"
 	"antifox/db"
+	"antifox/engine/skill"
 )
 
 // reSkillName is the base character-set pattern; validSkillName enforces
@@ -50,7 +50,7 @@ var reAgentKey = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 // pgReady returns the PG handle, or writes 503 and returns nil if unavailable.
 func (s *Server) pg(w http.ResponseWriter) *db.DB {
 	if s.m.pg == nil {
-		writeErr(w, 503, "管理后台数据源(PostgreSQL)未连接")
+		writeErr(w, 503, s.lerr("management-console datastore (PostgreSQL) is not connected", "管理后台数据源(PostgreSQL)未连接"))
 		return nil
 	}
 	return s.m.pg
@@ -113,15 +113,15 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Key, req.Name = strings.TrimSpace(req.Key), strings.TrimSpace(req.Name)
 	if !reAgentKey.MatchString(req.Key) {
-		writeErr(w, 400, "key 需小写字母开头，仅含小写字母/数字/下划线")
+		s.writeErrL(w, 400, "key must start with a lowercase letter and contain only lowercase letters/digits/underscores", "key 需小写字母开头，仅含小写字母/数字/下划线")
 		return
 	}
 	if req.Name == "" {
-		writeErr(w, 400, "名称不能为空")
+		s.writeErrL(w, 400, "name must not be empty", "名称不能为空")
 		return
 	}
 	if exist, _ := pg.GetAgentByKey(req.Key); exist != nil {
-		writeErr(w, 409, "该 key 已存在")
+		s.writeErrL(w, 409, "this key already exists", "该 key 已存在")
 		return
 	}
 	a, err := pg.CreateAgent(req.Key, req.Name, req.Description)
@@ -130,8 +130,8 @@ func (s *Server) pgCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// starter prompt so the editor shows something editable from the start.
-	if err := pg.SeedPromptIfEmpty(a.ID, agent.DefaultAssistantPrompt); err != nil {
-		log.Printf("[agents] seed starter prompt for %s 失败: %v", a.Key, err)
+	if err := pg.SeedPromptIfEmpty(a.ID, agent.DefaultAssistantPromptFor(s.readContentLang())); err != nil {
+		log.Printf("[agents] seed starter prompt for %s failed: %v", a.Key, err)
 	}
 	writeJSON(w, 200, agentDTO(a))
 }
@@ -143,7 +143,7 @@ func (s *Server) pgUpdateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Builtin {
-		writeErr(w, 400, "内置 agent 不可修改名称/描述")
+		s.writeErrL(w, 400, "built-in agents cannot have their name/description modified", "内置 agent 不可修改名称/描述")
 		return
 	}
 	var req struct{ Name, Description string }
@@ -153,7 +153,7 @@ func (s *Server) pgUpdateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		writeErr(w, 400, "名称不能为空")
+		s.writeErrL(w, 400, "name must not be empty", "名称不能为空")
 		return
 	}
 	if err := pg.UpdateAgentMeta(a.Key, req.Name, req.Description); err != nil {
@@ -171,7 +171,7 @@ func (s *Server) pgDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Builtin {
-		writeErr(w, 400, "内置 agent 不可删除")
+		s.writeErrL(w, 400, "built-in agents cannot be deleted", "内置 agent 不可删除")
 		return
 	}
 	if err := pg.DeleteAgent(a.Key); err != nil {
@@ -179,10 +179,10 @@ func (s *Server) pgDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := pg.RemoveAgentFromToolBindings(a.Key); err != nil {
-		log.Printf("[agents] 清理 %s 工具绑定失败: %v", a.Key, err)
+		log.Printf("[agents] failed to clean up tool bindings for %s: %v", a.Key, err)
 	}
 	if err := pg.DeleteTriggersForAgent(a.Key); err != nil {
-		log.Printf("[agents] 清理 %s 触发器失败: %v", a.Key, err)
+		log.Printf("[agents] failed to clean up triggers for %s: %v", a.Key, err)
 	}
 	writeJSON(w, 200, map[string]any{"deleted": a.Key})
 }
@@ -198,7 +198,7 @@ func (s *Server) agentByKey(w http.ResponseWriter, r *http.Request) (*db.DB, *db
 		return nil, nil, false
 	}
 	if a == nil {
-		writeErr(w, 404, "agent not found")
+		s.writeErrL(w, 404, "agent not found", "agent 不存在")
 		return nil, nil, false
 	}
 	return pg, a, true
@@ -336,9 +336,9 @@ func (s *Server) pgResetPrompt(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	tmpl, has := agent.BuiltinPromptSeeds()[a.Key]
+	tmpl, has := agent.BuiltinPromptSeedsFor(s.readContentLang())[a.Key]
 	if !has {
-		writeErr(w, 400, "该 agent 无内置默认提示词，无法恢复")
+		s.writeErrL(w, 400, "this agent has no built-in default prompt to restore", "该 agent 无内置默认提示词，无法恢复")
 		return
 	}
 	ver, err := pg.ResetPromptToDefault(a.ID, tmpl)
@@ -569,7 +569,7 @@ func (s *Server) pgUpdateTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cur == nil {
-		writeErr(w, 404, "工具不存在: "+key)
+		s.writeErrL(w, 404, "tool not found: "+key, "工具不存在: "+key)
 		return
 	}
 	var body struct {
@@ -603,6 +603,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 		if sd.Key != key {
 			continue
 		}
+		sd = agent.SeedInLanguage(sd, s.readContentLang())
 		schema, _ := json.Marshal(sd.Schema)
 		agents, _ := json.Marshal(sd.Agents)
 		if err := pg.UpsertToolForce(sd.Key, sd.Desc, schema, agents); err != nil {
@@ -626,7 +627,7 @@ func (s *Server) pgResetTool(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"ok": true})
 		return
 	}
-	writeErr(w, 404, "非内置工具或不存在: "+key)
+	writeErr(w, 404, s.lerr("not a built-in tool or not found: "+key, "非内置工具或不存在: "+key))
 }
 
 // ---------- mcp ----------
@@ -660,7 +661,7 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 	// stdio MCP 由服务端把 command/args 作为子进程拉起，等价于宿主机命令执行——收归 admin。
 	// 远程 MCP（http/sse）不在宿主机起进程，仍按 mcp:write 开放给 operator。
 	if strings.EqualFold(strings.TrimSpace(m.Transport), "stdio") && !isAdmin(r) {
-		writeErr(w, 403, "仅管理员可创建/修改 stdio 类型的 MCP 服务（会在宿主机启动子进程）")
+		s.writeErrL(w, 403, "only admins can create/modify stdio-type MCP servers (they start a subprocess on the host)", "仅管理员可创建/修改 stdio 类型的 MCP 服务（会在宿主机启动子进程）")
 		return
 	}
 	isNew := m.ID == 0
@@ -676,7 +677,7 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 		m.ID = id
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 		if derr := s.discoverAndCacheMCP(ctx, &m); derr != nil {
-			log.Printf("[mcp] %s 添加后工具发现失败: %v", m.Name, derr)
+			log.Printf("[mcp] %s tool discovery after add failed: %v", m.Name, derr)
 		}
 		cancel()
 	}
@@ -717,13 +718,13 @@ func (s *Server) pgRefreshMCP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if target == nil {
-		writeErr(w, 404, "MCP 不存在")
+		s.writeErrL(w, 404, "MCP not found", "MCP 不存在")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	if err := s.discoverAndCacheMCP(ctx, target); err != nil {
-		writeErr(w, 502, "工具发现失败："+err.Error())
+		s.writeErrL(w, 502, "tool discovery failed: "+err.Error(), "工具发现失败："+err.Error())
 		return
 	}
 	tools, _ := pg.MCPToolsDetailed(id)
@@ -850,16 +851,16 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validSkillName(body.Name) {
-		writeErr(w, 400, "skill name must be 1-64 lowercase alphanumeric/hyphen characters, not starting/ending/doubling hyphens")
+		s.writeErrL(w, 400, "skill name must be 1-64 lowercase alphanumeric/hyphen characters, not starting/ending/doubling hyphens", "skill 名称需为 1-64 位小写字母/数字/连字符，且不得以连字符开头/结尾或出现连续连字符")
 		return
 	}
 	if strings.TrimSpace(body.Description) == "" {
-		writeErr(w, 400, "description is required")
+		s.writeErrL(w, 400, "description is required", "必须填写描述")
 		return
 	}
 	skillPath := filepath.Join(s.skillDir, body.Name)
 	if _, err := os.Stat(skillPath); err == nil {
-		writeErr(w, 409, "skill already exists")
+		s.writeErrL(w, 409, "skill already exists", "skill 已存在")
 		return
 	}
 	if err := os.MkdirAll(skillPath, 0o755); err != nil {
@@ -898,7 +899,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.m.pg.RecordAudit(auditActor(r), "skill", "create_skill", "success", clientIP(r), "创建 skill "+body.Name, nil)
+	s.m.pg.RecordAudit(auditActor(r), "skill", "create_skill", "success", clientIP(r), "create skill "+body.Name, nil)
 	writeJSON(w, 201, map[string]any{"name": body.Name})
 }
 
@@ -910,7 +911,7 @@ func (s *Server) fsCreateSkill(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	var body struct {
@@ -926,7 +927,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 	skillMD := filepath.Join(s.skillDir, name, "SKILL.md")
 	raw, err := os.ReadFile(skillMD)
 	if err != nil {
-		writeErr(w, 404, "skill not found")
+		s.writeErrL(w, 404, "skill not found", "skill 不存在")
 		return
 	}
 	updated, err := rewriteSkillFrontmatter(raw, body.MCPs, body.Description, body.License, body.Compatibility)
@@ -938,7 +939,7 @@ func (s *Server) fsUpdateSkillMeta(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.m.pg.RecordAudit(auditActor(r), "skill", "update_skill_meta", "success", clientIP(r), "修改 skill 元信息 "+name, nil)
+	s.m.pg.RecordAudit(auditActor(r), "skill", "update_skill_meta", "success", clientIP(r), "update skill metadata "+name, nil)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -1058,7 +1059,7 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxSkillZipBytes)
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "缺少上传文件(表单字段 file)或超出大小限制")
+		s.writeErrL(w, 400, "missing upload file (form field file) or size limit exceeded", "缺少上传文件(表单字段 file)或超出大小限制")
 		return
 	}
 	defer file.Close()
@@ -1069,7 +1070,7 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	zr, err := zip.NewReader(bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
-		writeErr(w, 400, "无法解析压缩包(需为 zip 格式)："+err.Error())
+		s.writeErrL(w, 400, "failed to parse archive (must be zip format): "+err.Error(), "无法解析压缩包(需为 zip 格式)："+err.Error())
 		return
 	}
 
@@ -1084,7 +1085,7 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if skillMD == "" {
-		writeErr(w, 400, "压缩包内未找到 SKILL.md")
+		s.writeErrL(w, 400, "SKILL.md not found in archive", "压缩包内未找到 SKILL.md")
 		return
 	}
 	root := path.Dir(skillMD) // "." when SKILL.md is at the zip root
@@ -1107,14 +1108,14 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		name = strings.TrimSuffix(hdr.Filename, ".zip")
 	}
 	if !validSkillName(name) {
-		writeErr(w, 400, "skill 名称无效（取自 SKILL.md 的 name 字段）："+name)
+		s.writeErrL(w, 400, "invalid skill name (taken from SKILL.md name field): "+name, "skill 名称无效（取自 SKILL.md 的 name 字段）："+name)
 		return
 	}
 
 	skillPath := filepath.Join(s.skillDir, name)
 	overwrite := r.URL.Query().Get("overwrite") == "true"
 	if _, err := os.Stat(skillPath); err == nil && !overwrite {
-		writeErr(w, 409, "skill 已存在："+name+"（如需覆盖请确认后重试）")
+		s.writeErrL(w, 409, "skill already exists: "+name+" (confirm and retry to overwrite)", "skill 已存在："+name+"（如需覆盖请确认后重试）")
 		return
 	}
 
@@ -1144,15 +1145,15 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		}
 		clean, msg := skillRelPath(rel)
 		if msg != "" {
-			writeErr(w, 400, "压缩包含非法路径 "+f.Name+"："+msg)
+			s.writeErrL(w, 400, "archive contains an illegal path "+f.Name+": "+msg, "压缩包含非法路径 "+f.Name+"："+msg)
 			return
 		}
 		if entries++; entries > maxSkillEntries {
-			writeErr(w, 400, "压缩包文件过多")
+			s.writeErrL(w, 400, "too many files in archive", "压缩包文件过多")
 			return
 		}
 		if f.UncompressedSize64 > maxSkillFileBytes {
-			writeErr(w, 400, "文件过大："+rel)
+			s.writeErrL(w, 400, "file too large: "+rel, "文件过大: "+rel)
 			return
 		}
 		dst := filepath.Join(tmp, clean)
@@ -1180,12 +1181,12 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		}
 		total += n
 		if total > maxSkillTotalBytes {
-			writeErr(w, 400, "压缩包解压后过大")
+			s.writeErrL(w, 400, "archive too large after extraction", "解压后体积过大")
 			return
 		}
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "SKILL.md")); err != nil {
-		writeErr(w, 400, "解压后缺少 SKILL.md")
+		s.writeErrL(w, 400, "SKILL.md missing after extraction", "解压后缺少 SKILL.md")
 		return
 	}
 
@@ -1193,10 +1194,10 @@ func (s *Server) fsUploadSkill(w http.ResponseWriter, r *http.Request) {
 		_ = os.RemoveAll(skillPath)
 	}
 	if err := os.Rename(tmp, skillPath); err != nil {
-		writeErr(w, 500, "安装失败："+err.Error())
+		s.writeErrL(w, 500, "install failed: "+err.Error(), "安装失败: "+err.Error())
 		return
 	}
-	s.m.pg.RecordAudit(auditActor(r), "skill", "upload_skill", "success", clientIP(r), "上传安装 skill "+name, nil)
+	s.m.pg.RecordAudit(auditActor(r), "skill", "upload_skill", "success", clientIP(r), "upload-install skill "+name, nil)
 	writeJSON(w, 201, map[string]any{"name": name, "files": entries})
 }
 
@@ -1217,7 +1218,7 @@ func (s *Server) fsDeleteSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	if err := pg.DeleteSkillVisibility(name); err != nil {
@@ -1228,7 +1229,7 @@ func (s *Server) fsDeleteSkill(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	pg.RecordAudit(auditActor(r), "skill", "delete_skill", "success", clientIP(r), "删除 skill "+name, nil)
+	pg.RecordAudit(auditActor(r), "skill", "delete_skill", "success", clientIP(r), "delete skill "+name, nil)
 	writeJSON(w, 200, map[string]any{"deleted": name})
 }
 
@@ -1297,12 +1298,12 @@ func walkSkillFiles(root string) ([]string, error) {
 func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	dirPath := filepath.Join(s.skillDir, name)
 	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		writeErr(w, 404, "skill not found")
+		s.writeErrL(w, 404, "skill not found", "skill 不存在")
 		return
 	}
 	files, err := walkSkillFiles(dirPath)
@@ -1319,7 +1320,7 @@ func (s *Server) fsListFiles(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	file, errMsg := skillRelPath(r.PathValue("file"))
@@ -1329,7 +1330,7 @@ func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := os.ReadFile(filepath.Join(s.skillDir, name, file))
 	if os.IsNotExist(err) {
-		writeErr(w, 404, "file not found")
+		s.writeErrL(w, 404, "file not found", "文件不存在")
 		return
 	}
 	if err != nil {
@@ -1342,7 +1343,7 @@ func (s *Server) fsReadFile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	file, errMsg := skillRelPath(r.PathValue("file"))
@@ -1359,7 +1360,7 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	skillPath := filepath.Join(s.skillDir, name)
 	if _, err := os.Stat(skillPath); os.IsNotExist(err) {
-		writeErr(w, 404, "skill not found")
+		s.writeErrL(w, 404, "skill not found", "skill 不存在")
 		return
 	}
 	fullPath := filepath.Join(skillPath, file)
@@ -1372,14 +1373,14 @@ func (s *Server) fsWriteFile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	s.m.pg.RecordAudit(auditActor(r), "skill", "edit_skill_file", "success", clientIP(r), "编辑 skill 文件 "+name+"/"+file, nil)
+	s.m.pg.RecordAudit(auditActor(r), "skill", "edit_skill_file", "success", clientIP(r), "edit skill file "+name+"/"+file, nil)
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	var body struct {
@@ -1396,7 +1397,7 @@ func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 	}
 	skillPath := filepath.Join(s.skillDir, name)
 	if _, err := os.Stat(skillPath); os.IsNotExist(err) {
-		writeErr(w, 404, "skill not found")
+		s.writeErrL(w, 404, "skill not found", "skill 不存在")
 		return
 	}
 	if err := os.MkdirAll(filepath.Join(skillPath, dir), 0o755); err != nil {
@@ -1409,7 +1410,7 @@ func (s *Server) fsCreateDir(w http.ResponseWriter, r *http.Request) {
 func (s *Server) fsDeletePath(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if !validSkillName(name) {
-		writeErr(w, 400, "invalid skill name")
+		s.writeErrL(w, 400, "invalid skill name", "无效的 skill 名称")
 		return
 	}
 	file, errMsg := skillRelPath(r.PathValue("file"))
@@ -1419,7 +1420,7 @@ func (s *Server) fsDeletePath(w http.ResponseWriter, r *http.Request) {
 	}
 	fullPath := filepath.Join(s.skillDir, name, file)
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		writeErr(w, 404, "not found")
+		s.writeErrL(w, 404, "not found", "不存在")
 		return
 	}
 	if err := os.RemoveAll(fullPath); err != nil {
@@ -1643,7 +1644,7 @@ func (s *Server) pgSetLLMRole(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		writeErr(w, 400, "未知角色")
+		s.writeErrL(w, 400, "unknown role", "未知角色")
 		return
 	}
 	s.invalidateProfileAgents()
@@ -1732,7 +1733,7 @@ func (s *Server) pgSetProfilePool(w http.ResponseWriter, r *http.Request) {
 func validateTemplate(tmpl string, catalog []db.PromptVar) string {
 	t, err := template.New("p").Option("missingkey=error").Parse(tmpl)
 	if err != nil {
-		return "模板语法错误: " + err.Error()
+		return "template syntax error: " + err.Error()
 	}
 	allowed := map[string]bool{}
 	for _, v := range catalog {
@@ -1740,7 +1741,7 @@ func validateTemplate(tmpl string, catalog []db.PromptVar) string {
 	}
 	for _, name := range templateFields(t) {
 		if !allowed[name] {
-			return "变量 {{." + name + "}} 不在该 agent 允许列表"
+			return "variable {{." + name + "}} is not in this agent's allowed list"
 		}
 	}
 	return ""

@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"antifox/db"
 	acperm "antifox/engine/permission"
 	actool "antifox/engine/tool"
-	"antifox/db"
 	"antifox/knowledge"
 )
 
@@ -111,7 +111,8 @@ func (w WriteCounts) Total() int { return w.Facts + w.Assets + w.Findings }
 
 // String renders the per-kind breakdown for logs, e.g. "事实1 资产25 漏洞0".
 func (w WriteCounts) String() string {
-	return fmt.Sprintf("事实%d 资产%d 漏洞%d", w.Facts, w.Assets, w.Findings)
+	return tr(fmt.Sprintf("事实%d 资产%d 漏洞%d", w.Facts, w.Assets, w.Findings),
+		fmt.Sprintf("facts %d, assets %d, findings %d", w.Facts, w.Assets, w.Findings))
 }
 
 // Writes reports what this run wrote back, split by node kind (so the engine can
@@ -412,14 +413,15 @@ func (t *ToolSet) nodeDetail() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			id := pid(a.ID)
 			if id <= 0 {
-				return actool.Errorf("id 必填"), nil
+				return actool.Errorf(tr("id 必填", "id is required")), nil
 			}
 			n, err := t.ts.GetNode(id)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
 			if n == nil {
-				return actool.Errorf(fmt.Sprintf("未找到探索节点 %d。若你想查的是资产，请用 list_assets / asset_neighbors（资产与探索节点是不同的 id 空间，资产 id 不能传给 node_detail）。", id)), nil
+				return actool.Errorf(tr(fmt.Sprintf("未找到探索节点 %d。若你想查的是资产，请用 list_assets / asset_neighbors（资产与探索节点是不同的 id 空间，资产 id 不能传给 node_detail）。", id),
+					fmt.Sprintf("Exploration node %d not found. If you meant to look up an asset, use list_assets / asset_neighbors (assets and exploration nodes are separate id spaces; asset ids cannot be passed to node_detail).", id))), nil
 			}
 			return jsonResult(n) // full payload incl. detail / evidence
 		})
@@ -441,17 +443,19 @@ type intentItem struct {
 // 这样"每个意图都连到 fact 节点、且是发现驱动而非凭空规划"从创建路径上被强制。
 func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 	if strings.TrimSpace(it.Summary) == "" {
-		return 0, fmt.Errorf("summary 不能为空")
+		return 0, fmt.Errorf("%s", tr("summary 不能为空", "summary must not be empty"))
 	}
 	// 先校验锚点（建节点前，避免坏锚点留下孤儿意图）。
 	parents := pidList(it.ParentIDs)
 	for _, pidv := range parents {
 		n, err := t.ts.GetNode(pidv)
 		if err != nil || n == nil {
-			return 0, fmt.Errorf("parent_id %d 不存在：parent_ids 必须是已存在的【事实(fact)/发现(finding)】节点 id；顶层全新方向请留空 parent_ids", pidv)
+			return 0, fmt.Errorf("%s", tr(fmt.Sprintf("parent_id %d 不存在：parent_ids 必须是已存在的【事实(fact)/发现(finding)】节点 id；顶层全新方向请留空 parent_ids", pidv),
+				fmt.Sprintf("parent_id %d does not exist: parent_ids must be ids of EXISTING [fact/finding] nodes; leave parent_ids empty for a brand-new top-level direction", pidv)))
 		}
 		if n.Kind != db.KindFact && n.Kind != db.KindFinding {
-			return 0, fmt.Errorf("parent_id %d 是 %q 节点，不能作为意图锚点：意图只能锚在已确认的【事实(fact)/发现(finding)】上，不能挂在意图/目标/提示上；顶层全新方向请留空 parent_ids", pidv, n.Kind)
+			return 0, fmt.Errorf("%s", tr(fmt.Sprintf("parent_id %d 是 %q 节点，不能作为意图锚点：意图只能锚在已确认的【事实(fact)/发现(finding)】上，不能挂在意图/目标/提示上；顶层全新方向请留空 parent_ids", pidv, n.Kind),
+				fmt.Sprintf("parent_id %d is a %q node and cannot anchor an intent: intents may only anchor on confirmed [facts/findings], never on intents/goals/hints; leave parent_ids empty for a brand-new top-level direction", pidv, n.Kind)))
 		}
 	}
 	priority := it.Priority
@@ -555,7 +559,7 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			goal, ev := pid(a.GoalID), pid(a.EvidenceID)
 			if goal == 0 || ev == 0 {
-				return actool.Errorf("goal_id 和 evidence_id 必填"), nil
+				return actool.Errorf(tr("goal_id 和 evidence_id 必填", "goal_id and evidence_id are required")), nil
 			}
 			_ = t.ts.Link(ev, db.RelProves, goal)
 			_ = t.ts.SetNodeState(goal, "met")
@@ -571,8 +575,10 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 				}
 				if allMet {
 					t.GoalMet = true
-					t.Reason = fmt.Sprintf("所有 %d 个目标均已 met（最后由 goal %d 触发）", len(goals), goal)
-					return actool.Text(fmt.Sprintf("goal %d marked met；本任务所有目标均已达成，任务自动判定完成", goal)), nil
+					t.Reason = tr(fmt.Sprintf("所有 %d 个目标均已 met（最后由 goal %d 触发）", len(goals), goal),
+						fmt.Sprintf("all %d goals met (last triggered by goal %d)", len(goals), goal))
+					return actool.Text(tr(fmt.Sprintf("goal %d marked met；本任务所有目标均已达成，任务自动判定完成", goal),
+						fmt.Sprintf("goal %d marked met; all goals of this task are achieved — the task is automatically judged complete", goal))), nil
 				}
 			}
 			return actool.Text(fmt.Sprintf("goal %d marked met", goal)), nil
@@ -661,7 +667,7 @@ func (t *ToolSet) addFinding() actool.CoreTool {
 				}
 			} else {
 				// conversation context: no exploration store available, cannot record finding
-				return actool.Errorf("report_finding 需要任务上下文（exploration store 未初始化）"), nil
+				return actool.Errorf(tr("report_finding 需要任务上下文（exploration store 未初始化）", "report_finding requires task context (exploration store not initialized)")), nil
 			}
 			t.writes.Findings++
 			return actool.Text(fmt.Sprintf("finding recorded: %d", id)), nil
@@ -687,7 +693,7 @@ type factItem struct {
 // 批量时的默认意图（本条未给 intent_id 时用）。
 func (t *ToolSet) recordOneFact(it factItem, defaultIntent int64) (int64, error) {
 	if strings.TrimSpace(it.Summary) == "" {
-		return 0, fmt.Errorf("summary 不能为空")
+		return 0, fmt.Errorf("%s", tr("summary 不能为空", "summary must not be empty"))
 	}
 	payload := map[string]any{"summary": it.Summary}
 	if it.Detail != "" {
@@ -778,7 +784,7 @@ type hintItem struct {
 // addOneHint 挂一条 hint 节点(active/human)到探索图,可锚定资产,返回 id。
 func (t *ToolSet) addOneHint(it hintItem) (int64, error) {
 	if strings.TrimSpace(it.Text) == "" {
-		return 0, fmt.Errorf("text 不能为空")
+		return 0, fmt.Errorf("%s", tr("text 不能为空", "text must not be empty"))
 	}
 	var anchors []int64
 	for _, raw := range it.AssetIDs {
@@ -844,7 +850,7 @@ func (t *ToolSet) killWorkTool() actool.CoreTool {
 		obj(map[string]any{"intent_id": idp("要终止的意图 id（= work 句柄）")}, "intent_id"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.killWork == nil {
-				return actool.Errorf("kill_work 当前不可用"), nil
+				return actool.Errorf(tr("kill_work 当前不可用", "kill_work is currently unavailable")), nil
 			}
 			var a struct {
 				IntentID json.RawMessage `json:"intent_id"`
@@ -852,12 +858,13 @@ func (t *ToolSet) killWorkTool() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			id := pid(a.IntentID)
 			if id <= 0 {
-				return actool.Errorf("intent_id 必填"), nil
+				return actool.Errorf(tr("intent_id 必填", "intent_id is required")), nil
 			}
 			if err := t.killWork(id); err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
-			return actool.Text(fmt.Sprintf("已向意图 %d 的 work 发送终止信号", id)), nil
+			return actool.Text(tr(fmt.Sprintf("已向意图 %d 的 work 发送终止信号", id),
+				fmt.Sprintf("termination signal sent to intent %d's work", id))), nil
 		})
 }
 
@@ -873,7 +880,7 @@ func (t *ToolSet) steerWorkTool() actool.CoreTool {
 		}, "intent_id", "message"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.steerWork == nil {
-				return actool.Errorf("steer_work 当前不可用"), nil
+				return actool.Errorf(tr("steer_work 当前不可用", "steer_work is currently unavailable")), nil
 			}
 			var a struct {
 				IntentID json.RawMessage `json:"intent_id"`
@@ -882,15 +889,16 @@ func (t *ToolSet) steerWorkTool() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			id := pid(a.IntentID)
 			if id <= 0 {
-				return actool.Errorf("intent_id 必填"), nil
+				return actool.Errorf(tr("intent_id 必填", "intent_id is required")), nil
 			}
 			if strings.TrimSpace(a.Message) == "" {
-				return actool.Errorf("message 必填"), nil
+				return actool.Errorf(tr("message 必填", "message is required")), nil
 			}
 			if err := t.steerWork(id, a.Message); err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
-			return actool.Text(fmt.Sprintf("已向意图 %d 的 work 注入纠偏指令（下一步生效）", id)), nil
+			return actool.Text(tr(fmt.Sprintf("已向意图 %d 的 work 注入纠偏指令（下一步生效）", id),
+				fmt.Sprintf("course-correction instruction injected into intent %d's work (takes effect on the next step)", id))), nil
 		})
 }
 
@@ -905,7 +913,7 @@ func (t *ToolSet) getWorkerOutput() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			id := pid(a.IntentID)
 			if id <= 0 {
-				return actool.Errorf("intent_id 必填"), nil
+				return actool.Errorf(tr("intent_id 必填", "intent_id is required")), nil
 			}
 			acts, _, err := t.ts.ActivityList(&id, 0, 1000)
 			if err != nil {
@@ -926,7 +934,7 @@ func (t *ToolSet) getWorkerOutput() actool.CoreTool {
 				pick, terminated = fallback, true
 			}
 			if pick == nil {
-				return actool.Text("（该 work 尚无任何输出）"), nil
+				return actool.Text(tr("（该 work 尚无任何输出）", "(this work has no output yet)")), nil
 			}
 			detail, _ := t.ts.ActivityDetail(pick.ID)
 			if detail == "" {
@@ -979,7 +987,7 @@ func (t *ToolSet) getWorkerTrace() actool.CoreTool {
 			_ = json.Unmarshal(in, &a)
 			id := pid(a.IntentID)
 			if id <= 0 {
-				return actool.Errorf("intent_id 必填"), nil
+				return actool.Errorf(tr("intent_id 必填", "intent_id is required")), nil
 			}
 			// ③ detail drill-down by step ids (max 5), thinking excluded by the store.
 			if len(a.StepIDs) > 0 {
@@ -990,7 +998,7 @@ func (t *ToolSet) getWorkerTrace() actool.CoreTool {
 					}
 				}
 				if len(ids) > 5 {
-					return actool.Errorf("step_ids 一次最多 5 个（先用不带 step_ids 的调用定位，再分批取）"), nil
+					return actool.Errorf(tr("step_ids 一次最多 5 个（先用不带 step_ids 的调用定位，再分批取）", "step_ids: at most 5 per call (first locate them with a call without step_ids, then fetch in batches)")), nil
 				}
 				acts, err := t.ts.ActivityByIDs(ids)
 				if err != nil {
@@ -1038,7 +1046,7 @@ func (t *ToolSet) searchAllWorkerTraces() actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			if strings.TrimSpace(a.Q) == "" {
-				return actool.Errorf("q 必填"), nil
+				return actool.Errorf(tr("q 必填", "q is required")), nil
 			}
 			acts, err := t.ts.ActivityTraceSearch(nil, a.Q, a.Limit)
 			if err != nil {

@@ -202,6 +202,7 @@
     "createdAt": "Created",
     "updatedAt": "Updated",
     "unauthorized": "Unauthorized",
+    "untitledTask": "Untitled task",
     "uploadFailed": "Upload failed ({{status}})",
     "pagination": {
       "perPage": "/ page",
@@ -1267,6 +1268,13 @@
       "desc": "The number of work agents running concurrently per task (default 3). Higher values mean more concurrent probing but higher cost. Changes <b>take effect for tasks started afterward</b>; running tasks are unaffected.",
       "errInvalid": "Concurrency must be an integer greater than 0",
       "saved": "Concurrent work agent count saved (takes effect for tasks started afterward)"
+    },
+    "contentLang": {
+      "title": "Content Language (prompts / tools / skills)",
+      "desc": "The language used to seed the built-in agent prompts, tool descriptions, and the built-in skill library. Each install seeds only the selected language — no mixed-language content.",
+      "label": "Content language",
+      "hint": "Applies to content seeded from now on: a fresh install initializes in this language directly; an already-initialized instance can use “Reset to default” on each agent prompt / tool to apply the new language. The UI display language is switched separately at the bottom-left.",
+      "saved": "Content language saved"
     }
   },
   "logs": {
@@ -1937,5 +1945,29 @@
     "format": "Format",
     "formatDocx": "Word (.docx)",
     "formatMd": "Markdown bundle (.zip: md+images)"
+  },
+  "sessions": {
+    "role": {
+      "mainagent": "Main Agent",
+      "planner": "Planner",
+      "worker": "Workers"
+    },
+    "mainTitle": "Main Agent · Orchestration Session",
+    "plannerTitle": "Planner · Situation Analysis",
+    "workerTitle": "Worker Session",
+    "live": "Live",
+    "listTitle": "Sessions",
+    "noWorkers": "No running worker sessions.",
+    "totalTokensTip": "Total tokens across all agents for this task",
+    "taskTotal": "Task total · input {{input}} · cache {{cache}} · output {{output}}",
+    "tokensSummary": "input {{input}} · cache {{cache}} · output {{output}}",
+    "durationTip": "Run duration (first step to last step)",
+    "stopRun": "Stop current run",
+    "interactive": "Interactive",
+    "loadingStream": "Loading activity stream…",
+    "emptyMain": "No conversation yet. Message the main agent below to steer exploration or intervene in the run.",
+    "emptyOther": "No activity yet.",
+    "inputPlaceholder": "Message the main agent to steer exploration…",
+    "sendFailed": "(Send failed — please try again later)"
   }
 }

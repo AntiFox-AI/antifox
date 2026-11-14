@@ -131,7 +131,9 @@ func intp(v int) *int { return &v }
 // builtinAgents mirrors docs §5(a). 内置工具不入库；这里只 seed agent + 变量目录。
 // 注：planner/worker/mainagent/auto 的交互式 shell 默认由下方 interactive_shell_default_v1
 // 块统一置 true（尊重后续 toggle）；这里的 interactiveShell 只给需要「建行即默认开」的新 agent。
-var builtinAgents = []builtinAgent{
+// 双语：zh-CN 装机用 builtinAgentsZh（上游默认文案），en-US 装机用 builtinAgentsEn；
+// 由 settings 的 content_lang 决定（见 builtinAgentsFor / ApplyBuiltinAgentNames）。
+var builtinAgentsZh = []builtinAgent{
 	{"goals", "目标拆解", "goals", "把渗透任务目标拆解成若干独立、可验证的子目标。", []promptVar{
 		{"EngagementDescription", "任务描述（测试对象/背景）", "测试 example.com 站点", "exploration"},
 		{"Now", "服务端当前时间(RFC3339)", "2026-06-25T00:00:00Z", "runtime"},
@@ -155,9 +157,58 @@ var builtinAgents = []builtinAgent{
 	{"pentest", "渗透测试", "assistant", "独立渗透 agent：一人从侦察→找攻击面→深入利用→验证→收尾走完整条链，自己规划、自己执行、自己对抗式验证。", nil, true, intp(0)},
 }
 
-// seedBuiltins inserts the fixed built-in agents and their variable catalog (idempotent).
-func (d *DB) seedBuiltins() error {
-	for _, a := range builtinAgents {
+var builtinAgentsEn = []builtinAgent{
+	{"goals", "Goal Decomposer", "goals", "Decomposes the engagement's goals into independent, verifiable sub-goals.", []promptVar{
+		{"EngagementDescription", "Engagement description (target/background)", "Test the example.com site", "exploration"},
+		{"Now", "Server current time (RFC3339)", "2026-06-25T00:00:00Z", "runtime"},
+	}, false, nil},
+	{"planner", "Planner", "planner", "Reads the situation and judges goals; adds exploration intents only when a genuinely uncovered new direction exists (one planning loop per task).", []promptVar{
+		{"Goal", "Overall task objective", "Gain admin access on example.com", "exploration"},
+		{"AssetSummary", "Asset count/type distribution summary (optional)", "domain:3 ip:5 site:2", "distilled"},
+	}, false, nil},
+	{"mainagent", "Main Agent", "main", "Human interface: observes progress and turns the human's intent into hints or high-priority intents.", []promptVar{
+		{"Goal", "Current task objective", "Gain admin access on example.com", "exploration"},
+		{"AssetSummary", "Opening situation summary (optional)", "domain:3 ip:5", "distilled"},
+		{"FindingsSummary", "Confirmed findings summary (optional)", "high:1 medium:2", "distilled"},
+	}, false, nil},
+	{"worker", "Worker", "worker", "Claims one intent, executes it, writes the discovered facts/vulnerabilities back to the knowledge graph, then stops.", []promptVar{
+		{"ProxyAddr", "Recording proxy address (drives dual text)", "127.0.0.1:8080", "runtime"},
+		{"WorkerName", "Worker self-identifier (optional)", "worker-1", "runtime"},
+	}, false, intp(1200)},
+	{"auto", "Auto", "assistant", "Platform operations assistant: manages tasks (create/view/pause/hint) and assets via tools, and can create/edit skills, custom tools, and MCP servers.", nil, false, nil},
+	{"pentest", "Pentest", "assistant", "Standalone pentest agent: runs the whole chain alone — recon, attack-surface discovery, exploitation in depth, verification, wrap-up — planning, executing, and adversarially self-verifying on its own.", nil, true, intp(0)},
+}
+
+// builtinAgentsFor picks the agent catalog for a content language ("en-US" →
+// English table; anything else → the zh-CN upstream default).
+func builtinAgentsFor(lang string) []builtinAgent {
+	if lang == "en-US" {
+		return builtinAgentsEn
+	}
+	return builtinAgentsZh
+}
+
+// contentLang reads the content language from settings (default zh-CN). Mirrors
+// the server-side settingContentLang key.
+func (d *DB) contentLang() string {
+	if v, _, err := d.GetSetting("content_lang"); err == nil && v == "en-US" {
+		return "en-US"
+	}
+	return "zh-CN"
+}
+
+// ApplyBuiltinAgentNames re-applies the built-in agents' display names,
+// descriptions and variable catalog in the given content language (the boot
+// upsert path). Called at boot and whenever the operator switches content_lang.
+func (d *DB) ApplyBuiltinAgentNames(lang string) error {
+	return d.seedBuiltinAgents(builtinAgentsFor(lang))
+}
+
+// seedBuiltinAgents upserts one agent catalog (names/descriptions/vars) for a
+// single language. Builtin rows are code-owned: the upsert intentionally
+// re-applies display text on every boot / language switch.
+func (d *DB) seedBuiltinAgents(list []builtinAgent) error {
+	for _, a := range list {
 		var agentID int64
 		err := d.QueryRow(`
 INSERT INTO agents(key, name, description, role, builtin, enabled, interactive_shell, run_seconds)
@@ -177,6 +228,14 @@ ON CONFLICT (agent_id, var_name) DO UPDATE
 				return fmt.Errorf("agent %s var %s: %w", a.key, v.name, err)
 			}
 		}
+	}
+	return nil
+}
+
+// seedBuiltins inserts the fixed built-in agents and their variable catalog (idempotent).
+func (d *DB) seedBuiltins() error {
+	if err := d.seedBuiltinAgents(builtinAgentsFor(d.contentLang())); err != nil {
+		return err
 	}
 	// Drop catalog entries for variables that were renamed, so the white-list no
 	// longer advertises a name templates can't resolve (EngagementTitle→Description).
@@ -203,22 +262,30 @@ ON CONFLICT (name) DO NOTHING`,
 		return fmt.Errorf("seed browser mcp: %w", err)
 	}
 	// filesystem: read/write files during pentest (payloads, output, configs).
+	fsDesc := "读写本地文件系统——在渗透测试中存取载荷、脚本输出、发现的配置文件等"
+	if d.contentLang() == "en-US" {
+		fsDesc = "Read/write the local filesystem — store and retrieve payloads, script output, and discovered config files during pentests"
+	}
 	if _, err := d.Exec(`
 INSERT INTO mcp_servers(name, transport, command, args, env, enabled, description)
-VALUES ('filesystem', 'stdio', 'npx', $1, '{}', true, '读写本地文件系统——在渗透测试中存取载荷、脚本输出、发现的配置文件等')
+VALUES ('filesystem', 'stdio', 'npx', $1, '{}', true, $2)
 ON CONFLICT (name) DO NOTHING`,
-		`["@modelcontextprotocol/server-filesystem","/tmp/antifox-fs"]`); err != nil {
+		`["@modelcontextprotocol/server-filesystem","/tmp/antifox-fs"]`, fsDesc); err != nil {
 		return fmt.Errorf("seed filesystem mcp: %w", err)
 	}
 	// github: recon via GitHub API — search repos, find exposed secrets, analyze code.
 	// Seeded DISABLED: it needs a real GITHUB_PERSONAL_ACCESS_TOKEN, so leaving it
 	// enabled with the placeholder guarantees "connection closed" error spam on every
 	// deploy. Operator enables it after setting a token on the MCP page.
+	ghDesc := "GitHub 仓库侦察——搜索公开代码库中可能泄露的凭据、密钥、敏感配置，或分析目标组织开源项目代码（需在 MCP 页填入 GITHUB_PERSONAL_ACCESS_TOKEN 后启用）"
+	if d.contentLang() == "en-US" {
+		ghDesc = "GitHub repository recon — search public code for leaked credentials, keys, and sensitive configuration, or analyze the target organization's open-source projects (fill in GITHUB_PERSONAL_ACCESS_TOKEN on the MCP page, then enable)"
+	}
 	if _, err := d.Exec(`
 INSERT INTO mcp_servers(name, transport, command, args, env, enabled, description)
-VALUES ('github', 'stdio', 'npx', $1, $2, false, 'GitHub 仓库侦察——搜索公开代码库中可能泄露的凭据、密钥、敏感配置，或分析目标组织开源项目代码（需在 MCP 页填入 GITHUB_PERSONAL_ACCESS_TOKEN 后启用）')
+VALUES ('github', 'stdio', 'npx', $1, $2, false, $3)
 ON CONFLICT (name) DO NOTHING`,
-		`["@modelcontextprotocol/server-github"]`, `{"GITHUB_PERSONAL_ACCESS_TOKEN":"<your-token>"}`); err != nil {
+		`["@modelcontextprotocol/server-github"]`, `{"GITHUB_PERSONAL_ACCESS_TOKEN":"<your-token>"}`, ghDesc); err != nil {
 		return fmt.Errorf("seed github mcp: %w", err)
 	}
 	if err := d.seedBuiltinMCPVisibility(); err != nil {
@@ -244,8 +311,8 @@ ON CONFLICT (name) DO NOTHING`,
 // Records the outcome in the settings flag "knowledge.vector_available".
 func (d *DB) ensureKnowledgeVectorSchema() {
 	if _, err := d.Exec(`CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
-		log.Printf("[knowledge] pgvector 不可用（%v）——语义检索禁用，降级为关键词检索。"+
-			"启用需超级用户执行一次 CREATE EXTENSION vector", err)
+		log.Printf("[knowledge] pgvector unavailable (%v) — semantic search disabled, falling back to keyword search. "+
+			"Enable it by having a superuser run CREATE EXTENSION vector once", err)
 		_ = d.SetBool("knowledge.vector_available", false)
 		return
 	}
@@ -493,30 +560,30 @@ func (d *DB) seedDefaultInterceptRules() error {
 		//   2. Python HTTP 客户端 .delete() 方法
 		//   3. JS/通用脚本里的 method: 'DELETE' / method="DELETE"
 		{
-			name:    "[内置] curl / wget 发送 DELETE 请求",
-			target:  "tool_input",
-			typ:     "regex",
-			pattern: `(?i)\bcurl\b[^|\n&;"]{0,300}(?:-X\s*DELETE|--request\s+DELETE|-XDELETE)|\bwget\b[^|\n&;"]{0,300}--method[=\s]+DELETE`,
-			action:  "deny",
-			message: "禁止通过 curl/wget 发送 HTTP DELETE 请求，可能删除目标系统数据",
+			name:     "[内置] curl / wget 发送 DELETE 请求",
+			target:   "tool_input",
+			typ:      "regex",
+			pattern:  `(?i)\bcurl\b[^|\n&;"]{0,300}(?:-X\s*DELETE|--request\s+DELETE|-XDELETE)|\bwget\b[^|\n&;"]{0,300}--method[=\s]+DELETE`,
+			action:   "deny",
+			message:  "禁止通过 curl/wget 发送 HTTP DELETE 请求，可能删除目标系统数据",
 			priority: 80,
 		},
 		{
-			name:    "[内置] Python HTTP 客户端 DELETE（requests/httpx/aiohttp）",
-			target:  "tool_input",
-			typ:     "regex",
-			pattern: `(?i)\b(?:requests|httpx|aiohttp|urllib\.request)\.delete\s*\(|session\.delete\s*\(|client\.delete\s*\(`,
-			action:  "deny",
-			message: "禁止使用 Python HTTP 客户端发送 DELETE 请求",
+			name:     "[内置] Python HTTP 客户端 DELETE（requests/httpx/aiohttp）",
+			target:   "tool_input",
+			typ:      "regex",
+			pattern:  `(?i)\b(?:requests|httpx|aiohttp|urllib\.request)\.delete\s*\(|session\.delete\s*\(|client\.delete\s*\(`,
+			action:   "deny",
+			message:  "禁止使用 Python HTTP 客户端发送 DELETE 请求",
 			priority: 80,
 		},
 		{
-			name:    "[内置] 脚本中声明 HTTP DELETE 方法（JS/通用）",
-			target:  "tool_input",
-			typ:     "regex",
-			pattern: `(?i)axios\.delete\s*\(|method\s*[:=]\s*['"]DELETE['"]`,
-			action:  "deny",
-			message: "禁止在脚本中声明并发送 HTTP DELETE 请求",
+			name:     "[内置] 脚本中声明 HTTP DELETE 方法（JS/通用）",
+			target:   "tool_input",
+			typ:      "regex",
+			pattern:  `(?i)axios\.delete\s*\(|method\s*[:=]\s*['"]DELETE['"]`,
+			action:   "deny",
+			message:  "禁止在脚本中声明并发送 HTTP DELETE 请求",
 			priority: 80,
 		},
 		{
@@ -529,14 +596,42 @@ func (d *DB) seedDefaultInterceptRules() error {
 			priority: 80,
 		},
 	}
+
+	// en-US seed variants: zh name → {en name, en message}. Patterns/targets/
+	// actions are language-independent; only display text differs.
+	interceptEn := map[string][2]string{
+		"[内置] 递归强制删除 rm -rf":                                  {"[Built-in] Recursive force-delete rm -rf", "Recursive force deletion (rm -rf / rm --recursive) is forbidden — it can permanently destroy the system or target environment"},
+		"[内置] 删除系统关键目录":                                       {"[Built-in] Delete critical system directories", "Deleting critical system paths is forbidden"},
+		"[内置] 磁盘格式化 mkfs":                                     {"[Built-in] Disk format mkfs", "Formatting disks (mkfs) is forbidden"},
+		"[内置] 覆写磁盘设备 dd":                                      {"[Built-in] Overwrite disk devices with dd", "Using dd to overwrite disk devices is forbidden"},
+		"[内置] Fork 炸弹":                                        {"[Built-in] Fork bomb", "Fork bombs are forbidden"},
+		"[内置] 关机 / 重启":                                        {"[Built-in] Shutdown / reboot", "Shutdown or reboot commands are forbidden"},
+		"[内置] 杀死全部进程":                                         {"[Built-in] Kill all processes", "kill -9 -1 or killall -9 (killing every process) is forbidden"},
+		"[内置] 磁盘擦除 shred / wipe":                              {"[Built-in] Disk erase shred / wipe", "Running shred/wipe against disk devices is forbidden"},
+		"[内置] 清空防火墙规则":                                        {"[Built-in] Flush firewall rules", "Flushing firewall rules (iptables -F / nft flush) is forbidden"},
+		"[内置] SQL DROP DATABASE / TABLE / SCHEMA":             {"[Built-in] SQL DROP DATABASE / TABLE / SCHEMA", "DROP operations are forbidden — they can irreversibly destroy database objects"},
+		"[内置] SQL TRUNCATE":                                   {"[Built-in] SQL TRUNCATE", "TRUNCATE is forbidden — it can empty every row of a table"},
+		"[内置] MongoDB drop / dropDatabase":                    {"[Built-in] MongoDB drop / dropDatabase", "MongoDB drop operations are forbidden"},
+		"[内置] Redis FLUSHALL / FLUSHDB":                       {"[Built-in] Redis FLUSHALL / FLUSHDB", "Redis FLUSHALL / FLUSHDB is forbidden — it can wipe all cached data"},
+		"[内置] curl / wget 发送 DELETE 请求":                       {"[Built-in] curl / wget DELETE requests", "Sending HTTP DELETE requests via curl/wget is forbidden — it may delete data on the target system"},
+		"[内置] Python HTTP 客户端 DELETE（requests/httpx/aiohttp）": {"[Built-in] Python HTTP client DELETE (requests/httpx/aiohttp)", "Sending DELETE requests via Python HTTP clients is forbidden"},
+		"[内置] 脚本中声明 HTTP DELETE 方法（JS/通用）":                    {"[Built-in] HTTP DELETE method declared in scripts (JS/general)", "Declaring and sending HTTP DELETE requests in scripts is forbidden"},
+		"[内置] 批量清空 / 清除接口路径":                                  {"[Built-in] Bulk wipe / purge endpoint paths", "Calling bulk-clear or destructive endpoints (/clear /wipe /flush /purge etc.) is forbidden"},
+	}
 	for _, r := range rules {
+		name, msg := r.name, r.message
+		if d.contentLang() == "en-US" {
+			if e, ok := interceptEn[r.name]; ok {
+				name, msg = e[0], e[1]
+			}
+		}
 		if _, err := d.Exec(`
 INSERT INTO intercept_rules(name, enabled, priority, match_target, match_type, pattern, action, message, timeout_enabled, timeout_seconds, timeout_action)
 VALUES ($1, true, $2, $3, $4, $5, $6, $7, false, 60, 'deny')
 ON CONFLICT DO NOTHING`,
-			r.name, r.priority, r.target, r.typ, r.pattern, r.action, r.message,
+			name, r.priority, r.target, r.typ, r.pattern, r.action, msg,
 		); err != nil {
-			return fmt.Errorf("rule %q: %w", r.name, err)
+			return fmt.Errorf("rule %q: %w", name, err)
 		}
 	}
 	return d.SetSetting("intercept_default_rules_v1", "done")

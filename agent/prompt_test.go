@@ -32,14 +32,26 @@ func TestRenderSystemOverrideAndFallback(t *testing.T) {
 	}
 
 	// full plannerSystem path: DB body [A] is honored, then the code-owned tail
-	// [C] (中间产物输出规约) is ALWAYS appended — editing the body can't drop it.
+	// [C] (中间产物输出规约 / Intermediate artifact output rules) is ALWAYS
+	// appended — editing the body can't drop it. Asserted in BOTH content
+	// languages (the default here is zh; en is selected explicitly).
 	PromptOverride = func(k string) (string, bool) { return "PLANNER {{.Goal}}", true }
-	got := plannerSystem("拿下X", "/data")
-	if !strings.HasPrefix(got, "PLANNER 拿下X") {
-		t.Fatalf("plannerSystem body not honored: %q", got)
-	}
-	if !strings.Contains(got, "中间产物输出规约") || !strings.Contains(got, "/data") {
-		t.Fatalf("plannerSystem missing code-owned artifact tail: %q", got)
+	oldLang := ContentLang()
+	t.Cleanup(func() { SetContentLang(oldLang) })
+	for _, tc := range []struct {
+		lang, marker string
+	}{
+		{"zh-CN", "中间产物输出规约"},
+		{"en-US", "Intermediate artifact output rules"},
+	} {
+		SetContentLang(tc.lang)
+		got := plannerSystem("拿下X", "/data")
+		if !strings.HasPrefix(got, "PLANNER 拿下X") {
+			t.Fatalf("plannerSystem body not honored (%s): %q", tc.lang, got)
+		}
+		if !strings.Contains(got, tc.marker) || !strings.Contains(got, "/data") {
+			t.Fatalf("plannerSystem missing code-owned artifact tail (%s): %q", tc.lang, got)
+		}
 	}
 
 	// worker dual-text via {{if .ProxyAddr}} in a user template, plus the code tail:
@@ -47,6 +59,7 @@ func TestRenderSystemOverrideAndFallback(t *testing.T) {
 	PromptOverride = func(k string) (string, bool) {
 		return "{{if .ProxyAddr}}走代理 {{.ProxyAddr}}{{else}}手动{{end}}", true
 	}
+	SetContentLang("en-US")
 	withProxy := workerSystem("127.0.0.1:8080", "/data")
 	if !strings.HasPrefix(withProxy, "走代理 127.0.0.1:8080") {
 		t.Fatalf("worker proxy branch body: %q", withProxy)
@@ -54,14 +67,18 @@ func TestRenderSystemOverrideAndFallback(t *testing.T) {
 	if !strings.Contains(withProxy, "traffic_search") {
 		t.Fatalf("worker with proxy should inject trafficTool: %q", withProxy)
 	}
-	if !strings.Contains(withProxy, "中间产物输出规约") {
+	if !strings.Contains(withProxy, "Intermediate artifact output rules") {
 		t.Fatalf("worker missing artifact tail: %q", withProxy)
 	}
+	SetContentLang("zh-CN")
 	noProxy := workerSystem("", "/data")
 	if !strings.HasPrefix(noProxy, "手动") {
 		t.Fatalf("worker no-proxy branch body: %q", noProxy)
 	}
 	if strings.Contains(noProxy, "traffic_search") {
 		t.Fatalf("worker without proxy must NOT inject trafficTool: %q", noProxy)
+	}
+	if !strings.Contains(noProxy, "中间产物输出规约") {
+		t.Fatalf("worker missing zh artifact tail: %q", noProxy)
 	}
 }

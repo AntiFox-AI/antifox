@@ -202,6 +202,7 @@
     "createdAt": "建立時間",
     "updatedAt": "更新時間",
     "unauthorized": "未授權",
+    "untitledTask": "未命名任務",
     "uploadFailed": "上傳失敗（{{status}}）",
     "pagination": {
       "perPage": "筆/頁",
@@ -1267,6 +1268,13 @@
       "desc": "每個任務並行執行的工作 agent 數量（預設 3）。數值越大並行探測越多、消耗也越高。修改後<b>對之後啟動的任務生效</b>，正在執行的任務不受影響。",
       "errInvalid": "並行數必須是大於 0 的整數",
       "saved": "已儲存並行工作 agent 數（對之後啟動的任務生效）"
+    },
+    "contentLang": {
+      "title": "內容語言（提示詞 / 工具 / 技能）",
+      "desc": "內建 agent 提示詞、工具描述與內建技能庫的播種語言。每個安裝只會播種所選語言的一種版本，不會出現中英夾雜。",
+      "label": "內容語言",
+      "hint": "對之後播種的內容生效：全新安裝直接以此語言初始化；已初始化的實例可對各 agent 提示詞/工具執行「恢復預設」來套用新語言。介面顯示語言請在左下角單獨切換。",
+      "saved": "內容語言已儲存"
     }
   },
   "logs": {
@@ -1937,5 +1945,29 @@
     "format": "報告格式",
     "formatDocx": "Word 文件 (.docx)",
     "formatMd": "Markdown 交付包 (.zip：md+截圖)"
+  },
+  "sessions": {
+    "role": {
+      "mainagent": "主 Agent",
+      "planner": "規劃 Planner",
+      "worker": "Workers"
+    },
+    "mainTitle": "主 Agent · 編排會話",
+    "plannerTitle": "規劃 Planner · 態勢研判",
+    "workerTitle": "Worker 執行會話",
+    "live": "即時",
+    "listTitle": "會話列表",
+    "noWorkers": "暫無執行中的 Worker 會話。",
+    "totalTokensTip": "整個任務所有 agent 的 token 合計",
+    "taskTotal": "任務總計 · input {{input}} · cache {{cache}} · output {{output}}",
+    "tokensSummary": "input {{input}} · cache {{cache}} · output {{output}}",
+    "durationTip": "執行時長（首步 → 末步）",
+    "stopRun": "停止目前執行",
+    "interactive": "可互動",
+    "loadingStream": "載入活動流…",
+    "emptyMain": "還沒有對話。在下方給主 Agent 發消息，引導探索方向或介入流程。",
+    "emptyOther": "暫無活動記錄。",
+    "inputPlaceholder": "給主 Agent 發消息，引導探索方向…",
+    "sendFailed": "（發送失敗，請稍後重試）"
   }
 }

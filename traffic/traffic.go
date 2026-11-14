@@ -31,6 +31,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// contentLang mirrors the server's content_lang setting ("zh-CN" default |
+// "en-US") for model-visible runtime strings (tool result texts). Set once at
+// boot via SetContentLang.
+var contentLang = "zh-CN"
+
+// SetContentLang sets the language for model-visible runtime strings
+// (normalized: anything other than "en-US" falls back to "zh-CN").
+func SetContentLang(l string) {
+	if l == "en-US" {
+		contentLang = "en-US"
+	} else {
+		contentLang = "zh-CN"
+	}
+}
+
+func tr(zh, en string) string {
+	if contentLang == "en-US" {
+		return en
+	}
+	return zh
+}
+
 const indexSchema = `
 CREATE TABLE IF NOT EXISTS exchanges (
   id           TEXT PRIMARY KEY,
@@ -111,7 +133,7 @@ func Open(dir, addr string) (*Traffic, error) {
 	// correlation. If FTS5 is unavailable we degrade to metadata-only search rather
 	// than refusing to open the store.
 	if _, err := db.Exec(bodyFTSSchema); err != nil {
-		log.Printf("[traffic] 正文索引(FTS5 trigram)不可用，降级为仅元数据搜索：%v", err)
+		log.Printf("[traffic] body index (FTS5 trigram) unavailable, falling back to metadata-only search: %v", err)
 	} else {
 		t.ftsOK = true
 		go t.backfillBodies() // 已有记录的正文补进索引（后台、不阻塞启动）
@@ -234,7 +256,7 @@ func (t *Traffic) maybePassthrough(f *mproxy.Flow, err error) {
 		return
 	}
 	if _, loaded := t.pass.LoadOrStore(host, struct{}{}); !loaded {
-		log.Printf("[traffic] 与 %s 的 MITM 出错，改为透传（该 host 后续直连目标、不再记录，但请求照常）：%v", host, err)
+		log.Printf("[traffic] MITM error with %s, switching to passthrough (this host connects directly from now on, no longer recorded, but requests still work): %v", host, err)
 	}
 }
 
@@ -508,7 +530,7 @@ func (t *Traffic) backfillBodies() {
 	if len(todo) == 0 {
 		return
 	}
-	log.Printf("[traffic] 正文索引回填开始：%d 条（最新优先）", len(todo))
+	log.Printf("[traffic] body index backfill started: %d records (newest first)", len(todo))
 	const batch = 1000
 	type ent struct{ id, req, resp string }
 	done := 0
@@ -537,10 +559,10 @@ func (t *Traffic) backfillBodies() {
 		t.wmu.Unlock()
 		done = end
 		if done%20000 < batch {
-			log.Printf("[traffic] 正文索引回填进度：%d / %d", done, len(todo))
+			log.Printf("[traffic] body index backfill progress: %d / %d", done, len(todo))
 		}
 	}
-	log.Printf("[traffic] 正文索引回填完成：%d 条", done)
+	log.Printf("[traffic] body index backfill done: %d records", done)
 }
 
 // conds 把高级筛选编译成 SQL 条件片段 + 参数（按出现顺序一一对应 ? 占位）。
@@ -1260,14 +1282,17 @@ func (t *Traffic) Tools() []actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			if strings.TrimSpace(a.Host) == "" {
-				return actool.Errorf("host 为必填参数：请指定要查询的主机（如 '192.168.1.100:8082'），避免全库扫描。"), nil
+				return actool.Errorf(tr(
+					"host 为必填参数：请指定要查询的主机（如 '192.168.1.100:8082'），避免全库扫描。",
+					"host is required: specify the host to query (e.g. '192.168.1.100:8082') to avoid a full-store scan.",
+				)), nil
 			}
 			rows, err := t.query(a.Host, a.Contains, a.Page, a.Limit)
 			if err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
 			if len(rows) == 0 {
-				return actool.Text("无匹配流量。"), nil
+				return actool.Text(tr("无匹配流量。", "No matching traffic.")), nil
 			}
 			// 精简为最小索引：仅保留定位所需字段 + 响应码/长度，不带任何响应内容。
 			type liteRow struct {
@@ -1318,5 +1343,8 @@ func clip(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + fmt.Sprintf("\n... [截断，共 %d 字节；完整在流量文件树] ...", len(s))
+	return s[:max] + tr(
+		fmt.Sprintf("\n... [截断，共 %d 字节；完整在流量文件树] ...", len(s)),
+		fmt.Sprintf("\n... [truncated, %d bytes total; full body in the traffic file tree] ...", len(s)),
+	)
 }

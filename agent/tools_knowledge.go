@@ -31,29 +31,29 @@ func (t *ToolSet) searchKnowledge() actool.CoreTool {
 			}
 			_ = json.Unmarshal(in, &a)
 			if strings.TrimSpace(a.Query) == "" {
-				return actool.Errorf("query 不能为空"), nil
+				return actool.Errorf(tr("query 不能为空", "query must not be empty")), nil
 			}
 			if t.kb == nil {
-				return actool.Text("知识库未启用。"), nil
+				return actool.Text(tr("知识库未启用。", "Knowledge base not enabled.")), nil
 			}
 			if a.TopK <= 0 {
 				a.TopK = 5
 			}
 			hits, mode, err := t.kb.SearchAndLog(ctx, a.Query, t.taskID, a.TopK, t.worker)
 			if err != nil {
-				return actool.Errorf(fmt.Sprintf("检索失败: %v", err)), nil
+				return actool.Errorf(fmt.Sprintf(tr("检索失败: %v", "search failed: %v"), err)), nil
 			}
 			if len(hits) == 0 {
-				return actool.Text("知识库中未找到相关内容。"), nil
+				return actool.Text(tr("知识库中未找到相关内容。", "No relevant content found in the knowledge base.")), nil
 			}
 			var b strings.Builder
-			fmt.Fprintf(&b, "检索模式: %s，命中 %d 条：\n", mode, len(hits))
+			fmt.Fprintf(&b, tr("检索模式: %s，命中 %d 条：\n", "Search mode: %s, %d hits:\n"), mode, len(hits))
 			for i, h := range hits {
-				scope := "全局"
+				scope := tr("全局", "global")
 				if h.Scope == "task" {
-					scope = "任务专属"
+					scope = tr("任务专属", "task-specific")
 				}
-				fmt.Fprintf(&b, "\n--- 结果 %d (相似度 %.0f%%, %s) ---\n[%s] %s\n%s\n",
+				fmt.Fprintf(&b, tr("\n--- 结果 %d (相似度 %.0f%%, %s) ---\n[%s] %s\n%s\n", "\n--- Result %d (similarity %.0f%%, %s) ---\n[%s] %s\n%s\n"),
 					i+1, h.Score*100, scope, h.Category, h.Title, strings.TrimSpace(h.Content))
 			}
 			return actool.Text(b.String()), nil
@@ -68,15 +68,15 @@ func (t *ToolSet) listKnowledgeCategories() actool.CoreTool {
 		obj(map[string]any{}),
 		func(ctx context.Context, _ json.RawMessage) (actool.Result, error) {
 			if t.kb == nil {
-				return actool.Text("知识库未启用。"), nil
+				return actool.Text(tr("知识库未启用。", "Knowledge base not enabled.")), nil
 			}
 			cats, err := t.kb.Categories(t.taskID)
 			if err != nil {
-				return actool.Errorf(fmt.Sprintf("读取失败: %v", err)), nil
+				return actool.Errorf(fmt.Sprintf(tr("读取失败: %v", "read failed: %v"), err)), nil
 			}
 			if len(cats) == 0 {
-				return actool.Text("知识库暂无分类。"), nil
+				return actool.Text(tr("知识库暂无分类。", "The knowledge base has no categories yet.")), nil
 			}
-			return actool.Text("知识库分类：\n- " + strings.Join(cats, "\n- ")), nil
+			return actool.Text(tr("知识库分类：\n- ", "Knowledge base categories:\n- ") + strings.Join(cats, "\n- ")), nil
 		})
 }

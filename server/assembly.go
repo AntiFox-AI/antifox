@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"antifox/engine/skill"
-	actool "antifox/engine/tool"
 	"antifox/agent"
 	"antifox/db"
+	"antifox/engine/skill"
+	actool "antifox/engine/tool"
 	"antifox/traffic"
 )
 
@@ -85,13 +85,13 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				}
 				cl, err := connectMCP(ctx, m)
 				if err != nil {
-					log.Printf("[mcp] %s 连接失败: %v", m.Name, err)
+					log.Printf("[mcp] %s connect failed: %v", m.Name, err)
 					continue
 				}
 				closers = append(closers, cl)
 				ts, err := cl.Tools(ctx)
 				if err != nil {
-					log.Printf("[mcp] %s tools/list 失败: %v", m.Name, err)
+					log.Printf("[mcp] %s tools/list failed: %v", m.Name, err)
 					continue
 				}
 				for _, t := range ts {
@@ -157,7 +157,7 @@ func wireAgentAugment(pg *db.DB, skillDir string, hostTools func() ([]actool.Cor
 				if !contains(boundAgents, a.Key) {
 					continue // only defer names this agent is actually bound to
 				}
-				allNames = append(allNames, name)    // schema withheld from the prompt
+				allNames = append(allNames, name)       // schema withheld from the prompt
 				globalNames = append(globalNames, name) // advertised in the deferred block
 				globalSet[name] = true
 				if unlock != nil {
@@ -193,15 +193,16 @@ func idSet(ids []int64) map[int64]bool {
 // agent_prompts on startup — first-insert only (SeedPromptIfEmpty is a no-op once
 // any version exists), so the DB becomes the authoritative editable source while
 // user edits survive restarts. Runs after seedBuiltins has created the agent rows.
-func seedPrompts(pg *db.DB) {
-	for key, tmpl := range agent.BuiltinPromptSeeds() {
+// lang selects the seeded variant (zh-CN default; en-US seeds the English bodies).
+func seedPrompts(pg *db.DB, lang string) {
+	for key, tmpl := range agent.BuiltinPromptSeedsFor(lang) {
 		a, err := pg.GetAgentByKey(key)
 		if err != nil || a == nil {
-			log.Printf("[prompts] seed %s 跳过: agent 不存在 (%v)", key, err)
+			log.Printf("[prompts] seed %s skipped: agent not found (%v)", key, err)
 			continue
 		}
 		if err := pg.SeedPromptIfEmpty(a.ID, tmpl); err != nil {
-			log.Printf("[prompts] seed %s 失败: %v", key, err)
+			log.Printf("[prompts] seed %s failed: %v", key, err)
 		}
 	}
 }
@@ -211,15 +212,17 @@ func seedPrompts(pg *db.DB) {
 // tool-assembly time each built-in tool is filtered by its agent binding / enabled
 // flag and, if kept, wrapped so the model sees the DB-overridden description/schema
 // and缺省入参 get injected. MCP/skill/host tools have no row and pass through.
-func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
+func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool, lang string) {
 	// Seed the built-in domain tools (first-insert only; DO NOTHING preserves edits).
 	// No startup prune: rows we didn't seed are left alone so future user-defined
 	// custom tools (system=false, added via the UI) survive restarts.
+	// lang swaps in the English description/schema overlay at seed time.
 	for _, s := range agent.BuiltinToolSeeds() {
+		s = agent.SeedInLanguage(s, lang)
 		schema, _ := json.Marshal(s.Schema)
 		agents, _ := json.Marshal(s.Agents)
 		if err := pg.SeedTool(s.Key, s.Desc, schema, agents); err != nil {
-			log.Printf("[tools] seed %s 失败: %v", s.Key, err)
+			log.Printf("[tools] seed %s failed: %v", s.Key, err)
 		}
 	}
 	// Seed the traffic host tools so they're bindable per-agent like built-ins.
@@ -228,19 +231,25 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 	// capture is on), so an off-capture binding simply never surfaces the tool.
 	trafficAgents, _ := json.Marshal([]string{"worker"})
 	for _, t := range traffic.SeedToolMetas() {
-		schema, _ := json.Marshal(t.InputSchema())
-		if err := pg.SeedTool(t.Name(), t.Description(), schema, trafficAgents); err != nil {
-			log.Printf("[tools] seed %s 失败: %v", t.Name(), err)
+		desc, schema := t.Description(), t.InputSchema()
+		if lang == "en-US" {
+			if d, sc, ok := agent.EnglishToolVariant(t.Name()); ok {
+				desc, schema = d, sc
+			}
+		}
+		schemaJSON, _ := json.Marshal(schema)
+		if err := pg.SeedTool(t.Name(), desc, schemaJSON, trafficAgents); err != nil {
+			log.Printf("[tools] seed %s failed: %v", t.Name(), err)
 		}
 	}
 	// bashInteractiveShellNote is appended to Bash's description ONLY for agents whose
 	// interactive_shell is on, so Bash points at shell_open for interactive programs
 	// without ever referencing a tool that isn't injected (§14.1/§14.2).
-	const bashInteractiveShellNote = "\n\n需要【交互输入】的程序（msfconsole / ssh 交互登录 / mysql、psql、python 等 REPL / 密码或 yes/no 提示 / nc 反弹 shell）不要用 Bash（它没有 stdin、会卡住），改用 shell_open 开交互会话（用完 shell_close）。一次性、非交互命令仍用 Bash。"
+	const bashInteractiveShellNote = "\n\nPrograms that need [interactive input] (msfconsole / interactive ssh login / mysql, psql, python and other REPLs / password or yes/no prompts / nc reverse shells) must NOT use Bash (it has no stdin and will hang); use shell_open to start an interactive session instead (shell_close when done). One-shot, non-interactive commands still use Bash."
 	agent.ToolResolve = func(_ context.Context, agentKey string, tools []actool.CoreTool) []actool.CoreTool {
 		rows, err := pg.ListTools()
 		if err != nil {
-			log.Printf("[tools] 读取工具表失败，按代码默认放行: %v", err)
+			log.Printf("[tools] failed to read tools table, passing through code defaults: %v", err)
 			return tools
 		}
 		byKey := make(map[string]*db.Tool, len(rows))
@@ -298,7 +307,7 @@ func wireTools(pg *db.DB, domainReg map[string]actool.CoreTool) {
 			}
 		}
 		if len(shellHints) > 0 {
-			note := "\n\n以下工具已安装在此 bash 环境中，可直接通过 Bash 调用：\n" + strings.Join(shellHints, "\n")
+			note := "\n\nThe following tools are installed in this bash environment and can be invoked directly via Bash:\n" + strings.Join(shellHints, "\n")
 			for i, t := range out {
 				if t.Name() == "Bash" {
 					out[i] = agent.DecorateTool(t, t.Description()+note, t.InputSchema())

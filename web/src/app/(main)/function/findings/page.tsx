@@ -29,6 +29,7 @@ import type { Finding, Severity, Task } from "@/lib/types";
 import { taskLabel, taskMap } from "@/lib/task-label";
 import { cn } from "@/lib/utils";
 
+import { dateLocale } from "@/lib/locale";
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
 // 实心强色严重度徽标——全部填充、色相区分(红→橙→琥珀→石板)，整齐可扫读、比浅底更扎实。
@@ -54,7 +55,7 @@ function SeverityPill({ sev }: { sev: string }) {
 }
 
 function fmtTime(ts: string) {
-  return new Date(ts).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(ts).toLocaleString(dateLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 // extractTarget pulls the affected host/URL out of the finding text (summary +

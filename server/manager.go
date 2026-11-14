@@ -109,9 +109,18 @@ func (m *Manager) Workers() int {
 // SetWorkers persists the concurrent work-agent count. Values <=0 are rejected.
 func (m *Manager) SetWorkers(n int) error {
 	if n <= 0 {
-		return fmt.Errorf("workers 必须 >0")
+		return fmt.Errorf("%s", m.lerr("workers must be >0", "workers 必须 >0"))
 	}
 	return m.pg.SetSetting(settingWorkers, strconv.Itoa(n))
+}
+
+// lerr is the Manager-side variant of Server.lerr: picks the user-facing message
+// language from the content_lang setting (English when en-US, Chinese otherwise).
+func (m *Manager) lerr(en, zh string) string {
+	if v, ok, err := m.pg.GetSetting(settingContentLang); err == nil && ok && v == "en-US" {
+		return en
+	}
+	return zh
 }
 
 // Enrich returns the asset auto-completion engine (may be nil if init failed).
@@ -136,7 +145,7 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("[pg] 数据库配置来源: %s", source)
+	log.Printf("[pg] database config source: %s", source)
 	pg, err := pgdb.Open(dsn)
 	if err != nil {
 		return nil, err
@@ -312,7 +321,7 @@ const browserMCPName = "browser"
 func (m *Manager) syncBrowserMCPProxy() {
 	servers, err := m.pg.ListMCP()
 	if err != nil {
-		log.Printf("[mcp] browser 代理同步: 读取 MCP 列表失败: %v", err)
+		log.Printf("[mcp] browser proxy sync: failed to read MCP list: %v", err)
 		return
 	}
 	var srv *pgdb.MCPServer
@@ -341,13 +350,13 @@ func (m *Manager) syncBrowserMCPProxy() {
 	srv.Args = encodeJSON(args)
 	srv.Env = encodeJSON(env)
 	if _, err := m.pg.SaveMCP(srv); err != nil {
-		log.Printf("[mcp] browser 代理同步失败: %v", err)
+		log.Printf("[mcp] browser proxy sync failed: %v", err)
 		return
 	}
 	if proxy != "" {
-		log.Printf("[mcp] browser MCP 已挂捕获代理 %s (CA %s)", proxy, cert)
+		log.Printf("[mcp] browser MCP now routed through capture proxy %s (CA %s)", proxy, cert)
 	} else {
-		log.Printf("[mcp] browser MCP 已移除捕获代理配置")
+		log.Printf("[mcp] browser MCP capture proxy config removed")
 	}
 }
 
@@ -363,7 +372,7 @@ const filesystemMCPName = "filesystem"
 func (m *Manager) ensureFilesystemMCPSandbox() {
 	servers, err := m.pg.ListMCP()
 	if err != nil {
-		log.Printf("[mcp] filesystem 沙箱同步: 读取 MCP 列表失败: %v", err)
+		log.Printf("[mcp] filesystem sandbox sync: failed to read MCP list: %v", err)
 		return
 	}
 	var srv *pgdb.MCPServer
@@ -392,13 +401,13 @@ func (m *Manager) ensureFilesystemMCPSandbox() {
 		args[len(args)-1] = dir
 		srv.Args = encodeJSON(args)
 		if _, err := m.pg.SaveMCP(srv); err != nil {
-			log.Printf("[mcp] filesystem 沙箱路径迁移失败: %v", err)
+			log.Printf("[mcp] filesystem sandbox path migration failed: %v", err)
 		} else {
-			log.Printf("[mcp] filesystem 沙箱路径 → %s", dir)
+			log.Printf("[mcp] filesystem sandbox path → %s", dir)
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		log.Printf("[mcp] filesystem 沙箱目录创建失败 %s: %v", dir, err)
+		log.Printf("[mcp] filesystem sandbox dir creation failed %s: %v", dir, err)
 	}
 }
 
@@ -499,10 +508,10 @@ func (m *Manager) applyGlobalProxy() {
 		return
 	}
 	if err := m.traffic.SetUpstream(raw); err != nil {
-		log.Printf("[traffic] 全局出口代理无效，忽略：%v", err)
+		log.Printf("[traffic] global egress proxy invalid, ignoring: %v", err)
 		return
 	}
-	log.Printf("[traffic] 全局出口代理已启用：目标流量经 %s 出网", raw)
+	log.Printf("[traffic] global egress proxy enabled: target traffic egresses via %s", raw)
 }
 
 // ProxyCACert returns the recording proxy's CA cert path (empty when no proxy or

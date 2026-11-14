@@ -25,7 +25,7 @@ func (s *Server) auditLogs(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	logs, total, err := pg.ListAuditLogs(category, actor, action, result, limit, offset)
 	if err != nil {
-		writeErr(w, 500, "获取审计日志失败")
+		s.writeErrL(w, 500, "Failed to fetch audit logs", "获取审计日志失败")
 		return
 	}
 	if logs == nil {

@@ -17,12 +17,13 @@ import (
 	"sync"
 	"time"
 
+	"antifox/agent"
+	"antifox/db"
 	"antifox/engine/llm"
 	"antifox/engine/memory"
 	actool "antifox/engine/tool"
 	"antifox/engine/transcript"
-	"antifox/agent"
-	"antifox/db"
+	"antifox/intercept"
 	"antifox/llmpool"
 	"antifox/report"
 	"antifox/traffic"
@@ -139,9 +140,18 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 	s.llmHealth = newLLMHealthRegistry(m.pg) // process-wide LLM circuit breaker (restores cooling windows)
 	// 多用户 RBAC：首启迁移旧单用户密码为内置 admin + 播种角色/权限（幂等）。
 	s.bootstrapRBAC()
+	// Content language for seeded prompts/tools/skills (zh-CN default; en-US optional).
+	// Read BEFORE any seeding below so a fresh install seeds one language, once.
+	contentLang := s.readContentLang()
+	// Also switch the code-fixed, non-seeded prompt segments in agent/ to that language.
+	agent.SetContentLang(contentLang)
+	// Intercept approval summaries / deny-ask messages follow the same language.
+	intercept.SetContentLang(contentLang)
+	// Traffic tool runtime result texts follow it too.
+	traffic.SetContentLang(contentLang)
 	// 内置 skill 库：把 embed 进二进制的默认 skill 物化到 skillDir（仅缺失时写）。
 	// 单二进制自包含，云/客户现场部署首启即有全套 skill，不依赖 dev 机文件。
-	materializeEmbeddedSkills(skillDir)
+	materializeEmbeddedSkills(skillDir, contentLang)
 	// 报告生成 skill：把内置骨架/prompt 落成可编辑文件（仅缺失时写，不覆盖用户编辑）。
 	if err := report.SeedSkillFiles(skillDir); err != nil {
 		log.Printf("[report] seed skill files: %v", err)
@@ -202,11 +212,11 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 		}
 		wireAgentAugment(m.pg, s.skillDir, s.hostTools) // 可见 skills/MCP + 流量/编排 host 工具装配进 agent 工具集
 		domainReg := buildDomainReg(m.Assets())
-		wireTools(m.pg, domainReg)                      // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
-		seedPrompts(m.pg)                               // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
-		s.seedOrchestrationTools()                      // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
-		s.seedPythonInterpreter()                       // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
-		go newScheduler(s).Run(s.ctx)                   // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
+		wireTools(m.pg, domainReg, contentLang) // 内置工具表：按 agent 过滤 + 覆盖描述/schema + 注入默认值
+		seedPrompts(m.pg, contentLang)          // 内置 agent 默认提示词正文播种进 agent_prompts(仅空时)
+		s.seedOrchestrationTools()              // P2 跨任务编排工具 seed 进 tools 表(可按 agent 绑定)
+		s.seedPythonInterpreter()               // 自定义脚本工具:开机检测 python 解释器入库(仅空时)
+		go newScheduler(s).Run(s.ctx)           // P3 触发器调度(定时/finding/目标事件),仅自定义 agent
 		// Fill the tool cache for any enabled MCP that has none yet (notably the
 		// seeded browser MCP on first run). Async so it never blocks startup.
 		go s.discoverEmptyMCPsOnStartup()
@@ -234,7 +244,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 		// clear stale 'running' intents from a prior crash/restart (no live worker
 		// owns them) so they re-claim instead of spinning forever in the UI.
 		if n, _ := t.Store.ResetRunningIntents(); n > 0 {
-			log.Printf("[engine] task %s 重置 %d 个残留 running 意图为 open", t.ID, n)
+			log.Printf("[engine] task %s reset %d leftover running intents to open", t.ID, n)
 		}
 		if t.Paused {
 			s.engine.Pause(t.ID)
@@ -834,7 +844,7 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(taskParam)
 	if t == nil {
 		if taskParam != "" && taskParam != "active" {
-			writeErr(w, 404, "task not found")
+			s.writeErrL(w, 404, "task not found", "任务不存在")
 			return
 		}
 		writeJSON(w, 200, out) // no task selected: only global fields
@@ -896,8 +906,8 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		active = t.ID
 	}
 	list := s.m.List()
-	toks, _ := s.m.PG().TokenTotalsAll()     // whole-task token totals, one query for all tasks
-	lastAct, _ := s.m.PG().LastActivityAll() // persisted last-activity per task, one query
+	toks, _ := s.m.PG().TokenTotalsAll()      // whole-task token totals, one query for all tasks
+	lastAct, _ := s.m.PG().LastActivityAll()  // persisted last-activity per task, one query
 	goalCounts, _ := s.m.PG().GoalCountsAll() // goal progress per exploration, one query
 	dtos := make([]TaskDTO, 0, len(list))
 	for _, t := range list {
@@ -935,7 +945,7 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.m.SetActive(req.ID) {
-		writeErr(w, 404, "task not found")
+		s.writeErrL(w, 404, "task not found", "任务不存在")
 		return
 	}
 	// resume the engine for the opened task (idempotent — no-op if already running).
@@ -961,21 +971,21 @@ type editTaskReq struct {
 func (s *Server) editTask(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		s.writeErrL(w, 404, "task not found", "任务不存在")
 		return
 	}
 	var req editTaskReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+		s.writeErrL(w, 400, "bad json: "+err.Error(), "无效的 JSON: "+err.Error())
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" {
-		writeErr(w, 400, "描述不能为空")
+		s.writeErrL(w, 400, "description must not be empty", "描述不能为空")
 		return
 	}
 	if req.LLMProfileID != nil {
 		if _, ok := s.loadProfileConfig(*req.LLMProfileID); !ok {
-			writeErr(w, 400, "所选 LLM 配置不存在或未设置 API Key")
+			s.writeErrL(w, 400, "the selected LLM profile does not exist or has no API key set", "所选 LLM 配置不存在或未设置 API Key")
 			return
 		}
 	}
@@ -983,14 +993,14 @@ func (s *Server) editTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	log.Printf("[task] #%s 已编辑", t.ID)
+	log.Printf("[task] #%s edited", t.ID)
 	writeJSON(w, 200, map[string]any{"id": t.ID, "ok": true})
 }
 
 func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		s.writeErrL(w, 404, "task not found", "任务不存在")
 		return
 	}
 	var req struct {
@@ -1009,15 +1019,15 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	case "rerun":
 		// 继续运行：把停下/结束的任务重激活(重置非终态+清运行时钟)，保留探索图，续跑。
 		if err := s.m.ReactivateTask(t.ID); err != nil {
-			writeErr(w, 500, "reactivate: "+err.Error())
+			s.writeErrL(w, 500, "reactivate: "+err.Error(), "重新激活: "+err.Error())
 			return
 		}
 		s.engine.Rerun(s.ctx, t)
-		log.Printf("[task] #%s 继续运行(重跑)", t.ID)
+		log.Printf("[task] #%s resumed (rerun)", t.ID)
 		writeJSON(w, 200, map[string]any{"id": t.ID, "paused": false, "status": "running"})
 		return
 	default:
-		writeErr(w, 400, "action must be pause|resume|rerun")
+		s.writeErrL(w, 400, "action must be pause|resume|rerun", "action 必须为 pause|resume|rerun")
 		return
 	}
 	paused := s.engine.IsPaused(t.ID)
@@ -1025,7 +1035,7 @@ func (s *Server) control(w http.ResponseWriter, r *http.Request) {
 	if err := s.m.SetTaskPaused(t.ID, paused); err != nil { // persist (survives restart)
 		log.Printf("[control] persist paused %s: %v", t.ID, err)
 	}
-	log.Printf("[task] #%s %s", t.ID, map[bool]string{true: "已暂停", false: "已恢复"}[paused])
+	log.Printf("[task] #%s %s", t.ID, map[bool]string{true: "paused", false: "resumed"}[paused])
 	writeJSON(w, 200, map[string]any{"id": t.ID, "paused": paused})
 }
 
@@ -1079,11 +1089,11 @@ func (s *Server) setLLM(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.Unlock()
 	}
 	if cfg.APIKey == "" {
-		writeErr(w, 400, "api_key required")
+		s.writeErrL(w, 400, "api_key required", "缺少 api_key")
 		return
 	}
 	if err := s.applyLLM(cfg); err != nil {
-		writeErr(w, 400, "provider init failed: "+err.Error())
+		s.writeErrL(w, 400, "provider init failed: "+err.Error(), "初始化 provider 失败: "+err.Error())
 		return
 	}
 	s.saveLLMConfig(cfg) // persist to DB
@@ -1123,7 +1133,7 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.Unlock()
 	}
 	if cfg.APIKey == "" {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "未提供 API Key"})
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "no API key provided"})
 		return
 	}
 	lat, err := agent.TestConnection(r.Context(), cfg)
@@ -1146,17 +1156,17 @@ type createTaskReq struct {
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req createTaskReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "bad json: "+err.Error())
+		s.writeErrL(w, 400, "bad json: "+err.Error(), "无效的 JSON: "+err.Error())
 		return
 	}
 	if strings.TrimSpace(req.Description) == "" {
-		req.Description = "未命名任务"
+		req.Description = "Unnamed task"
 	}
 	// validate the pinned profile up front (must exist + be usable), so a bad id fails
 	// task creation instead of silently falling back to the active profile at run time.
 	if req.LLMProfileID != nil {
 		if _, ok := s.loadProfileConfig(*req.LLMProfileID); !ok {
-			writeErr(w, 400, "所选 LLM 配置不存在或未设置 API Key")
+			s.writeErrL(w, 400, "the selected LLM profile does not exist or has no API key set", "所选 LLM 配置不存在或未设置 API Key")
 			return
 		}
 	}
@@ -1168,7 +1178,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	log.Printf("[task] 新建任务 #%s «%s» 目标: %s", t.ID, req.Description, req.Goal)
+	log.Printf("[task] created #%s \"%s\" goal: %s", t.ID, req.Description, req.Goal)
 	// seed initial asset(s) from goal/description so the event-driven loop has a root.
 	s.seed(t, req.Description+" "+req.Goal)
 	// Return immediately — goal decomposition is async so the UI isn't blocked.
@@ -1178,7 +1188,7 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 	// fires before any goal nodes exist.
 	go func() {
 		s.engine.emitActivity(t, db.Activity{Worker: "planner", Kind: "round",
-			Summary: "第 0 轮目标拆解"})
+			Summary: "round 0 goal decomposition"})
 		goals := s.createGoals(s.ctx, t, func(r db.Activity) {
 			s.engine.emitActivity(t, r)
 		})
@@ -1263,13 +1273,13 @@ func (s *Server) llmHost() string {
 func (s *Server) seed(t *Task, text string) {
 	scheme, host, port, ok := parseTarget(text)
 	if !ok {
-		log.Printf("[seed] task %s: 未能从 %q 解析出目标 host/IP，不创建站点（请手动配置 scope）", t.ID, text)
+		log.Printf("[seed] task %s: could not parse a target host/IP from %q; not creating a site (configure scope manually)", t.ID, text)
 		t.Notify()
 		return
 	}
 	// P0-1 guard: never treat the configured LLM gateway as a target.
 	if gw := s.llmHost(); gw != "" && host == gw {
-		log.Printf("[seed] task %s: 目标 %q 是 LLM 网关，拒绝作为渗透目标", t.ID, host)
+		log.Printf("[seed] task %s: target %q is the LLM gateway; refusing it as a pentest target", t.ID, host)
 		t.Notify()
 		return
 	}
@@ -1295,20 +1305,18 @@ func (s *Server) seed(t *Task, text string) {
 			_ = t.Store.Anchor(begin, rootID)
 		}
 	}
-	log.Printf("[seed] task %s: 目标站点 %s", t.ID, u)
+	log.Printf("[seed] task %s: target site %s", t.ID, u)
 	t.Notify()
 }
 
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.m.Task(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "task not found")
+		s.writeErrL(w, 404, "task not found", "任务不存在")
 		return
 	}
 	writeJSON(w, 200, t)
 }
-
-
 
 func (s *Server) frontier(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
@@ -1525,7 +1533,7 @@ func (s *Server) getLogsHistory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming unsupported")
+		s.writeErrL(w, 500, "streaming unsupported", "不支持流式传输")
 		return
 	}
 	since := int64(atoiDefault(r.URL.Query().Get("since"), 0))
@@ -1576,12 +1584,12 @@ func (s *Server) streamLogs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		s.writeErrL(w, 404, "task not found", "任务不存在")
 		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming unsupported")
+		s.writeErrL(w, 500, "streaming unsupported", "不支持流式传输")
 		return
 	}
 	var intentPtr *int64
@@ -1657,7 +1665,7 @@ func (s *Server) streamActivity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no task")
+		s.writeErrL(w, 404, "no task", "无任务")
 		return
 	}
 	seq, _ := strconv.ParseInt(r.PathValue("seq"), 10, 64)
@@ -1668,7 +1676,6 @@ func (s *Server) activityDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"detail": d})
 }
-
 
 // parseTrafficFilter 从查询串解析高级筛选（路径 / 状态码桶 2xx..5xx / 响应长度区间）。
 func parseTrafficFilter(q url.Values) traffic.TrafficFilter {
@@ -1756,13 +1763,13 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{
-		"enabled":       s.m.TrafficEnabled(), // reflect the capture toggle
-		"proxy":         s.m.ProxyAddr(),
-		"count":         count,   // total recorded (unfiltered)
-		"total":         matched, // rows matching the current filter (for pagination)
-		"page":          page,
-		"size":          size,
-		"exchanges":     dtos,
+		"enabled":        s.m.TrafficEnabled(), // reflect the capture toggle
+		"proxy":          s.m.ProxyAddr(),
+		"count":          count,   // total recorded (unfiltered)
+		"total":          matched, // rows matching the current filter (for pagination)
+		"page":           page,
+		"size":           size,
+		"exchanges":      dtos,
 		"status_buckets": buckets, // {2:N,3:N,4:N,5:N} — true distribution for the dashboard
 	})
 }
@@ -1772,12 +1779,12 @@ func (s *Server) getTraffic(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getTrafficExchange(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		s.writeErrL(w, 404, "traffic disabled", "流量捕获未开启")
 		return
 	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		writeErr(w, 400, "missing id")
+		s.writeErrL(w, 400, "missing id", "缺少 id")
 		return
 	}
 	req, resp, err := tr.Get(id)
@@ -1794,17 +1801,17 @@ func (s *Server) getTrafficExchange(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getTrafficMeta(w http.ResponseWriter, r *http.Request) {
 	tr := s.m.Traffic()
 	if tr == nil {
-		writeErr(w, 404, "traffic disabled")
+		s.writeErrL(w, 404, "traffic disabled", "流量捕获未开启")
 		return
 	}
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		writeErr(w, 400, "missing id")
+		s.writeErrL(w, 400, "missing id", "缺少 id")
 		return
 	}
 	metas, err := tr.MetaByIDs([]string{id})
 	if err != nil || len(metas) == 0 {
-		writeErr(w, 404, "not found")
+		s.writeErrL(w, 404, "not found", "不存在")
 		return
 	}
 	writeJSON(w, 200, trafficDTOs(metas)[0])
@@ -1817,19 +1824,33 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.settingsPayload())
 }
 
+// readContentLang resolves the content language from settings, defaulting to
+// zh-CN. Unknown values also fall back to zh-CN so a bad row never breaks boot.
+func (s *Server) readContentLang() string {
+	if v, ok, err := s.m.pg.GetSetting(settingContentLang); err == nil && ok {
+		for _, l := range ContentLangs {
+			if v == l {
+				return v
+			}
+		}
+	}
+	return ContentLangs[0]
+}
+
 func (s *Server) settingsPayload() map[string]any {
 	on, backend, braveKey, tavilyKey, proxy := s.m.WebSearch()
 	pyStored, _, _ := s.m.pg.GetSetting(settingPythonInterp)
 	return map[string]any{
-		"traffic_capture":     s.m.TrafficEnabled(),
-		"web_search_enabled":  on,
-		"web_search_backend":  backend,
-		"brave_key_set":       strings.TrimSpace(braveKey) != "",
-		"tavily_key_set":      strings.TrimSpace(tavilyKey) != "",
-		"web_search_proxy":    proxy,                       // 独立出口代理(http/https/socks5)，空=直连
-		"global_proxy":        s.m.GlobalProxy(),           // 全局出口代理：agent 目标流量经它出网(作 MITM 上游)，空=直连
-		"python_interpreter":  strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
-		"workers":             s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
+		"traffic_capture":    s.m.TrafficEnabled(),
+		"web_search_enabled": on,
+		"web_search_backend": backend,
+		"brave_key_set":      strings.TrimSpace(braveKey) != "",
+		"tavily_key_set":     strings.TrimSpace(tavilyKey) != "",
+		"web_search_proxy":   proxy,                       // 独立出口代理(http/https/socks5)，空=直连
+		"global_proxy":       s.m.GlobalProxy(),           // 全局出口代理：agent 目标流量经它出网(作 MITM 上游)，空=直连
+		"python_interpreter": strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
+		"workers":            s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
+		"content_lang":       s.readContentLang(),         // 播种内容语言(提示词/工具描述/skill)；改后经 reset/新装生效
 	}
 }
 
@@ -1837,7 +1858,7 @@ func (s *Server) settingsPayload() map[string]any {
 func (s *Server) pgDetectPython(w http.ResponseWriter, r *http.Request) {
 	p := detectPython()
 	if p == "" {
-		writeErr(w, 404, "未检测到 python(python3/python 均不在 PATH)")
+		s.writeErrL(w, 404, "no python detected (neither python3 nor python is on PATH)", "未检测到 python(python3/python 均不在 PATH)")
 		return
 	}
 	if err := s.m.pg.SetSetting(settingPythonInterp, p); err != nil {
@@ -1863,10 +1884,39 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		GlobalProxy      *string `json:"global_proxy"`       // 全局出口代理(http/https/socks5)；null=不改，""=清空(直连)
 		PythonInterp     *string `json:"python_interpreter"` // 自定义脚本工具的 python 解释器路径
 		Workers          *int    `json:"workers"`            // 并发工作 agent 数(>0)；对之后启动的任务生效
+		ContentLang      *string `json:"content_lang"`       // 播种内容语言 zh-CN|en-US；null=不改
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if req.ContentLang != nil {
+		valid := false
+		for _, l := range ContentLangs {
+			if *req.ContentLang == l {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			s.writeErrL(w, 400, "content_lang must be one of "+strings.Join(ContentLangs, ", "), "content_lang 必须为 "+strings.Join(ContentLangs, ", ")+" 之一")
+			return
+		}
+		if err := s.m.pg.SetSetting(settingContentLang, *req.ContentLang); err != nil {
+			s.writeErrL(w, 500, err.Error(), err.Error())
+			return
+		}
+		// Keep code-fixed LLM-visible prompt segments (agent.tr) in the new language.
+		agent.SetContentLang(*req.ContentLang)
+		// Intercept approval summaries / messages follow the language switch too.
+		intercept.SetContentLang(*req.ContentLang)
+		// Traffic tool runtime texts follow the language switch too.
+		traffic.SetContentLang(*req.ContentLang)
+		// Re-apply built-in agent display names + var catalog in the new language.
+		if err := s.m.pg.ApplyBuiltinAgentNames(*req.ContentLang); err != nil {
+			s.writeErrL(w, 500, "language saved but agent names could not be re-applied: "+err.Error(), "语言已保存，但内置 agent 名称重应用失败："+err.Error())
+			return
+		}
 	}
 	if req.Workers != nil {
 		if err := s.m.SetWorkers(*req.Workers); err != nil {
@@ -1953,12 +2003,12 @@ func (s *Server) testGlobalProxy(w http.ResponseWriter, r *http.Request) {
 		raw = s.m.GlobalProxy()
 	}
 	if raw == "" {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "未配置代理"})
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "no proxy configured"})
 		return
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5") {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "代理地址非法（需 http/https/socks5）"})
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "invalid proxy address (must be http/https/socks5)"})
 		return
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
@@ -1984,7 +2034,7 @@ func (s *Server) testGlobalProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		ip := strings.TrimSpace(string(raw))
 		if net.ParseIP(ip) == nil {
-			lastErr = "返回非 IP 响应"
+			lastErr = "non-IP response returned"
 			continue
 		}
 		writeJSON(w, 200, map[string]any{
@@ -1995,7 +2045,7 @@ func (s *Server) testGlobalProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if lastErr == "" {
-		lastErr = "无可用检测节点"
+		lastErr = "no usable detection node"
 	}
 	writeJSON(w, 200, map[string]any{"ok": false, "error": lastErr})
 }
@@ -2037,7 +2087,7 @@ func (s *Server) testWebSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(results) == 0 {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": "搜索返回 0 条结果（可能被限流或代理不通）", "backend": backend})
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "search returned 0 results (possibly rate-limited or the proxy is down)", "backend": backend})
 		return
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "count": len(results), "backend": backend})
@@ -2062,7 +2112,7 @@ func (s *Server) chatLockFor(id string) *sync.Mutex {
 func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		s.writeErrL(w, 404, "no active task", "没有进行中的任务")
 		return
 	}
 	var req struct {
@@ -2110,7 +2160,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 			emit := func(rec db.Activity) { s.engine.emitActivity(t, rec) }
 			maTaskID, _ := strconv.ParseInt(t.ID, 10, 64)
 			if _, err := ma.Chat(ctx, maTaskID, s.m.Assets(), t.Store, t.Goal, req.Message, emit, t.Notify); err != nil && ctx.Err() == nil {
-				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: "（主 Agent 出错：" + err.Error() + "）"})
+				s.engine.emitActivity(t, db.Activity{Worker: "mainagent", Kind: "text", IsError: true, Summary: "(main agent error: " + err.Error() + ")"})
 			}
 		}()
 		writeJSON(w, 202, map[string]any{"status": "accepted", "mode": "llm"})
@@ -2127,7 +2177,7 @@ func (s *Server) chat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) stopChat(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.PathValue("id"))
 	if t == nil {
-		writeErr(w, 404, "task not found")
+		s.writeErrL(w, 404, "task not found", "任务不存在")
 		return
 	}
 	s.chatMu.Lock()
@@ -2149,11 +2199,11 @@ func (s *Server) fallbackChat(t *Task, msg string) string {
 	case strings.HasPrefix(m, "意图") || strings.HasPrefix(lower, "intent"):
 		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(m, "意图"), "intent"))
 		_, _ = t.Store.AddIntent(map[string]any{"summary": text}, 9, nil, "human")
-		return "已注入一条高优先级意图：" + text
+		return "Injected a high-priority intent: " + text
 	case strings.HasPrefix(m, "提示") || strings.HasPrefix(lower, "hint"):
 		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(m, "提示"), "hint"))
 		_, _ = t.Store.AddNode(db.KindHint, map[string]any{"text": text}, 0, "active", "human", nil)
-		return "已记录提示，规划者下次会读到：" + text
+		return "Hint recorded; the planner will read it next round: " + text
 	default:
 		assetCounts, _ := s.m.Assets().CountsByType()
 		assets := 0
@@ -2162,14 +2212,14 @@ func (s *Server) fallbackChat(t *Task, msg string) string {
 		}
 		fnd, _ := t.Store.ListByKind(db.KindFinding, 1000)
 		fr, _ := t.Store.Frontier(1000)
-		return fmt.Sprintf("（规则模式，未配置 LLM）当前态势：资产 %d，待领意图 %d，确认发现 %d。\n可用指令：以\"意图 ...\"注入意图，\"提示 ...\"给规划者提示。", assets, len(fr), len(fnd))
+		return fmt.Sprintf("(rule mode, no LLM configured) current situation: assets %d, pending intents %d, confirmed findings %d.\nAvailable commands: start a message with \"intent ...\" to inject an intent, or \"hint ...\" to leave the planner a hint.", assets, len(fr), len(fnd))
 	}
 }
 
 func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 	t := s.m.ResolveTask(r.URL.Query().Get("task"))
 	if t == nil {
-		writeErr(w, 404, "no active task")
+		s.writeErrL(w, 404, "no active task", "没有进行中的任务")
 		return
 	}
 	findings, _ := t.Store.ListByKind(db.KindFinding, 1000) // 纯漏洞（事实是独立的 KindFact，不进报告）

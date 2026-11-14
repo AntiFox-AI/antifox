@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { CpuIcon, RadioTowerIcon, SearchIcon } from "lucide-react";
+import { CpuIcon, LanguagesIcon, RadioTowerIcon, SearchIcon } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -35,6 +35,8 @@ export default function SystemSettingsPage() {
   const [pyInterp, setPyInterp] = React.useState("");
   const [workers, setWorkers] = React.useState("3");
   const [savingWorkers, setSavingWorkers] = React.useState(false);
+  const [contentLang, setContentLang] = React.useState("zh-CN");
+  const [savingContentLang, setSavingContentLang] = React.useState(false);
   const [globalProxy, setGlobalProxy] = React.useState("");
   const [savingGlobalProxy, setSavingGlobalProxy] = React.useState(false);
   const [testingGlobalProxy, setTestingGlobalProxy] = React.useState(false);
@@ -49,7 +51,27 @@ export default function SystemSettingsPage() {
     setGlobalProxy(s.global_proxy || "");
     setPyInterp(s.python_interpreter || "");
     setWorkers(String(s.workers ?? 3));
+    setContentLang(s.content_lang || "zh-CN");
   }, []);
+
+  const saveContentLang = (v: string) => {
+    setContentLang(v); // optimistic
+    setSavingContentLang(true);
+    api
+      .setSettings({ content_lang: v })
+      .then((s) => {
+        apply(s);
+        toast.success(t("settings.contentLang.saved"));
+      })
+      .catch((e) => {
+        toast.error(t("settings.saveFailed", { msg: (e as Error).message }));
+        api
+          .settings()
+          .then(apply)
+          .catch(() => undefined);
+      })
+      .finally(() => setSavingContentLang(false));
+  };
 
   const saveGlobalProxy = () => {
     setSavingGlobalProxy(true);
@@ -267,6 +289,31 @@ export default function SystemSettingsPage() {
               {testingGlobalProxy ? t("settings.globalProxy.testing") : t("settings.globalProxy.test")}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="max-w-2xl lg:max-w-none">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <LanguagesIcon className="size-4" />
+            {t("settings.contentLang.title")}
+          </CardTitle>
+          <CardDescription>{t("settings.contentLang.desc")}</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-4">
+            <Label className="text-sm font-normal text-muted-foreground">{t("settings.contentLang.label")}</Label>
+            <Select value={contentLang} disabled={!loaded || savingContentLang} onValueChange={saveContentLang}>
+              <SelectTrigger className="w-48 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="zh-CN">简体中文</SelectItem>
+                <SelectItem value="en-US">English</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="text-muted-foreground text-xs">{t("settings.contentLang.hint")}</p>
         </CardContent>
       </Card>
 

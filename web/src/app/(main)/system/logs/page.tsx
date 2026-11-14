@@ -14,6 +14,7 @@ import { MOCK } from "@/lib/mock/enabled";
 import type { AuditLog, LogLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+import { dateLocale } from "@/lib/locale";
 type TFn = ReturnType<typeof useTranslation>["t"];
 
 // Mock demo：无后端 SSE，塞几行示例日志。
@@ -43,7 +44,7 @@ function fmtTime(ts: string) {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return "";
   // 显示完整日期+时间（登录日志等需按日期区分，仅时间会误导）。
-  return d.toLocaleString("zh-CN", {
+  return d.toLocaleString(dateLocale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

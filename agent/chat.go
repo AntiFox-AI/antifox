@@ -6,12 +6,12 @@ import (
 	"path/filepath"
 	"time"
 
+	"antifox/db"
 	"antifox/engine/agentcore"
 	"antifox/engine/llm"
 	"antifox/engine/permission"
 	actool "antifox/engine/tool"
 	"antifox/engine/transcript"
-	"antifox/db"
 	"antifox/guard"
 )
 
@@ -52,7 +52,10 @@ func (c *ChatAgent) SetGuard(g *guard.Guard) { c.guard = g }
 // agent's system prompt. Mirrors artifactSpec but without pentest-specific
 // wording ("payload", "抓响应体") that would be odd in a general assistant.
 func chatWorkDirSpec(workDir string) string {
-	return "\n\n**文件输出规约**：需要写文件时，一律写到工作目录 " + workDir + "（这是默认 CWD，相对路径即落在这里，也可用该绝对路径）——不要写 /tmp 或其他绝对路径。"
+	return tr(
+		"\n\n**文件输出规约**：需要写文件时，一律写到工作目录 "+workDir+"（这是默认 CWD，相对路径即落在这里，也可用该绝对路径）——不要写 /tmp 或其他绝对路径。",
+		"\n\n**File output rules**: when you need to write files, always write them into the working directory "+workDir+" (this is the default CWD; relative paths land there, and you may also use the absolute path) — do not write to /tmp or other absolute paths.",
+	)
 }
 
 // chatSystem renders the DB-managed prompt body for agentKey. Custom agents have
@@ -112,12 +115,12 @@ func (c *ChatAgent) Chat(ctx context.Context, agentKey, sessionID, message strin
 		BraveSearchAPIKey:  ws.BraveKey,
 		TavilySearchAPIKey: ws.TavilyKey,
 		WebSearchProxy:     ws.Proxy,
-		BashEnv:           proxyEnv(c.proxyAddr, c.proxyCACert), // Bash 子命令默认走代理+信任 CA
-		WorkingDir:        sessionWorkDir,
-		MaxTurns:          maxTurns,
-		MaxDuration:       maxDuration,
-		Compaction:        compactionConfig(c.window),
-		Todos:             actool.NewTodoStore(),
+		BashEnv:            proxyEnv(c.proxyAddr, c.proxyCACert), // Bash 子命令默认走代理+信任 CA
+		WorkingDir:         sessionWorkDir,
+		MaxTurns:           maxTurns,
+		MaxDuration:        maxDuration,
+		Compaction:         compactionConfig(c.window),
+		Todos:              actool.NewTodoStore(),
 		// large tool output spills to cmd-output/ under the session dir.
 		// 截断上限用 SDK 默认(tool.Capture 的 30000 字符)。
 		ToolOutputDir: filepath.Join(sessionWorkDir, "cmd-output"),

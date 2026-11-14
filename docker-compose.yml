@@ -12,7 +12,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
+    # "no" (quoted — bare no is YAML false): only start on demand, never on boot
+    restart: "no"
 
   antifox:
     image: ghcr.io/antifox-ai/antifox:${ANTIFOX_TAG:-latest}
@@ -28,16 +29,23 @@ services:
       ANTIFOX_LLM_BASE_URL: ${ANTIFOX_LLM_BASE_URL:-}
       ANTIFOX_LLM_PROXY: ${ANTIFOX_LLM_PROXY:-}
     ports:
-      - "8787:8787"
-      - "8788:8788"
+      # localhost-only binds: pentest tool, keep it off the LAN
+      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:8788:8788"
     volumes:
+      # locally-built dual-language binary (feat/content-lang-full); the
+      # content_lang setting (en-US) selects English. Recreate the container
+      # (podman compose up -d antifox) to pick up a rebuild — the file is
+      # bind-mounted, the image stays untouched.
+      - ./antifox-dual:/app/antifox:ro
       # 把数据目录（含 jwt.key、SQLite 等）绑定到项目根目录的 data/，
       # 方便在宿主机直接查看/备份，容器重建也不丢。
       - ./data:/app/data
       # 把项目根目录的 skills 挂进容器（覆盖镜像内置的 /app/skills）；
       # 改 skill 无需重建镜像，容器读的就是宿主机这份。
       - ./skills:/app/skills
-    restart: unless-stopped
+    # "no" (quoted): launch on demand via the Hack menu, never on boot
+    restart: "no"
 
 volumes:
   pgdata:

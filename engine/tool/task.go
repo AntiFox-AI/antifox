@@ -331,11 +331,11 @@ func (m *Manager) notifFor(t *Task) Notification {
 	var sum string
 	switch {
 	case t.oversize:
-		sum = fmt.Sprintf("Task %q 输出超过上限已被终止 (%s)。", short(t.Command), t.Kind)
+		sum = fmt.Sprintf("Task %q output exceeded the limit and was terminated (%s).", short(t.Command), t.Kind)
 	case t.Status == TaskCompleted:
-		sum = fmt.Sprintf("Task %q 已完成 (exit %d)。用 TaskOutput 或 Read 读取输出文件。", short(t.Command), t.ExitCode)
+		sum = fmt.Sprintf("Task %q completed (exit %d). Use TaskOutput or Read to read the output file.", short(t.Command), t.ExitCode)
 	case t.Status == TaskFailed:
-		sum = fmt.Sprintf("Task %q 失败 (exit %d)。用 TaskOutput 或 Read 读取输出文件。", short(t.Command), t.ExitCode)
+		sum = fmt.Sprintf("Task %q failed (exit %d). Use TaskOutput or Read to read the output file.", short(t.Command), t.ExitCode)
 	default:
 		sum = fmt.Sprintf("Task %q %s。", short(t.Command), t.Status)
 	}

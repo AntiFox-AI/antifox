@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"antifox/db"
 	"antifox/engine/agentcore"
 	"antifox/engine/llm"
 	"antifox/engine/permission"
 	actool "antifox/engine/tool"
 	"antifox/engine/transcript"
-	"antifox/db"
 )
 
 // MainAgent is the thin human-interface orchestrator (docs §4.2 / §7). The human
@@ -94,10 +94,10 @@ func (m *MainAgent) Chat(ctx context.Context, taskID int64, as *db.AssetStore, t
 		BraveSearchAPIKey:  m.webSearch.BraveKey,
 		TavilySearchAPIKey: m.webSearch.TavilyKey,
 		WebSearchProxy:     m.webSearch.Proxy,
-		BashEnv:           proxyEnv(m.proxyAddr, m.proxyCACert), // Bash 子命令默认走代理+信任 CA
-		MaxTurns:          m.maxTurns,                           // 0 = unlimited (configurable in agent management)
-		Compaction:        compactionConfig(m.window),           // long chats stay within the window
-		Todos:             actool.NewTodoStore(),                // 会话级临时待办（TodoWrite），纯规划用，退出即丢
+		BashEnv:            proxyEnv(m.proxyAddr, m.proxyCACert), // Bash 子命令默认走代理+信任 CA
+		MaxTurns:           m.maxTurns,                           // 0 = unlimited (configurable in agent management)
+		Compaction:         compactionConfig(m.window),           // long chats stay within the window
+		Todos:              actool.NewTodoStore(),                // 会话级临时待办（TodoWrite），纯规划用，退出即丢
 		// 命中预算(步数)→ SDK 跑收尾:向用户输出一句进展总结。Prompt 与收尾轮数可后台编辑(默认 5 轮)。
 		Settlement: wrapupSettlement("mainagent", nil),
 	}

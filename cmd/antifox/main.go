@@ -36,8 +36,8 @@ const banner = `
 // printBanner writes the startup banner + version/runtime info to stdout.
 func printBanner(addr string) {
 	fmt.Print(banner)
-	fmt.Println("  AI 自主渗透测试系统")
-	fmt.Printf("  版本 %s  ·  %s/%s  ·  %s  ·  监听 %s\n\n",
+	fmt.Println("  AI Autonomous Pentest System")
+	fmt.Printf("  version %s  ·  %s/%s  ·  %s  ·  listening on %s\n\n",
 		version, runtime.GOOS, runtime.GOARCH, runtime.Version(), addr)
 }
 
@@ -76,9 +76,9 @@ func run() int {
 		cfgPath = abs
 	}
 	if _, e := os.Stat(cfgPath); e == nil {
-		log.Printf("[config] 配置文件: %s", cfgPath)
+		log.Printf("[config] config file: %s", cfgPath)
 	} else {
-		log.Printf("[config] 配置文件: %s (不存在 — 将仅尝试环境变量 ANTIFOX_PG_DSN)", cfgPath)
+		log.Printf("[config] config file: %s (not found — will only try the ANTIFOX_PG_DSN env var)", cfgPath)
 	}
 
 	// 数据目录持久化守卫：dataDir 落在 /tmp 或系统临时目录时，重启即清空——流量/报告/转录
@@ -105,7 +105,7 @@ func run() int {
 	if abs, err := filepath.Abs(skillDir); err == nil {
 		skillDir = abs
 	}
-	log.Printf("[config] skill 目录: %s", skillDir)
+	log.Printf("[config] skill dir: %s", skillDir)
 	srv := server.New(ctx, mgr, skillDir, *dataDir)
 	httpSrv := &http.Server{
 		Addr:              *addr,

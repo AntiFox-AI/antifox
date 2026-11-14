@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
+	"antifox/db"
 	"antifox/engine/permission"
 	actool "antifox/engine/tool"
-	"antifox/db"
 )
 
 // 本文件实现自定义工具执行器(docs/自定义工具设计.md)。system=false 的 tools 行按
@@ -54,23 +54,23 @@ func (s *Server) pgCreateCustomTool(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Key = strings.TrimSpace(req.Key)
 	if !reToolKey.MatchString(req.Key) {
-		writeErr(w, 400, "key 需小写字母开头，仅含小写字母/数字/下划线")
+		s.writeErrL(w, 400, "key must start with a lowercase letter and contain only lowercase letters/digits/underscores", "key 需小写字母开头，仅含小写字母/数字/下划线")
 		return
 	}
 	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
-		writeErr(w, 400, "kind 需为 command / script / http / shell")
+		s.writeErrL(w, 400, "kind must be command / script / http / shell", "kind 需为 command / script / http / shell")
 		return
 	}
 	if hostExecToolKind(req.Kind) && !isAdmin(r) {
-		writeErr(w, 403, "仅管理员可创建可在宿主机执行命令/脚本的工具（command/script/shell）")
+		s.writeErrL(w, 403, "only admins can create tools that execute commands/scripts on the host (command/script/shell)", "仅管理员可创建可在宿主机执行命令/脚本的工具（command/script/shell）")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
-		writeErr(w, 400, "http 工具必须提供参数 JSON Schema(不能留空)")
+		s.writeErrL(w, 400, "http tools must provide a parameter JSON Schema (cannot be empty)", "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
 	}
 	if exist, _ := pg.GetTool(req.Key); exist != nil {
-		writeErr(w, 409, "该 key 已存在(内置或自定义工具)")
+		s.writeErrL(w, 409, "this key already exists (built-in or custom tool)", "该 key 已存在(内置或自定义工具)")
 		return
 	}
 	if err := pg.CreateCustomTool(&db.Tool{
@@ -95,7 +95,7 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing == nil || existing.System {
-		writeErr(w, 400, "只能编辑自定义工具")
+		s.writeErrL(w, 400, "only custom tools can be edited", "只能编辑自定义工具")
 		return
 	}
 	var req customToolReq
@@ -104,17 +104,17 @@ func (s *Server) pgUpdateCustomTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Kind != "command" && req.Kind != "script" && req.Kind != "http" && req.Kind != "shell" {
-		writeErr(w, 400, "kind 需为 command / script / http / shell")
+		s.writeErrL(w, 400, "kind must be command / script / http / shell", "kind 需为 command / script / http / shell")
 		return
 	}
 	// 高危类型（宿主机执行）收归 admin：无论改前/改后是否为高危类型，都要求 admin，
 	// 防止 operator 把 http 工具改成 command，或改动一个已存在的 command 工具。
 	if (hostExecToolKind(req.Kind) || hostExecToolKind(existing.Kind)) && !isAdmin(r) {
-		writeErr(w, 403, "仅管理员可管理可在宿主机执行命令/脚本的工具（command/script/shell）")
+		s.writeErrL(w, 403, "only admins can manage tools that execute commands/scripts on the host (command/script/shell)", "仅管理员可管理可在宿主机执行命令/脚本的工具（command/script/shell）")
 		return
 	}
 	if req.Kind == "http" && !hasSchemaProps(req.Schema) {
-		writeErr(w, 400, "http 工具必须提供参数 JSON Schema(不能留空)")
+		s.writeErrL(w, 400, "http tools must provide a parameter JSON Schema (cannot be empty)", "http 工具必须提供参数 JSON Schema(不能留空)")
 		return
 	}
 	if err := pg.UpdateCustomTool(&db.Tool{
@@ -160,12 +160,12 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 	}
 	var req testToolReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "无效的请求体")
+		s.writeErrL(w, 400, "invalid request body", "无效的请求体")
 		return
 	}
 	// 试运行与真实调用走同一执行器，command/script 会在宿主机跑命令——收归 admin。
 	if hostExecToolKind(req.Kind) && !isAdmin(r) {
-		writeErr(w, 403, "仅管理员可试运行 command/script 类型工具")
+		s.writeErrL(w, 403, "only admins can test-run command/script tools", "仅管理员可试运行 command/script 类型工具")
 		return
 	}
 	params := req.Params
@@ -184,10 +184,10 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 	case "http":
 		res, _ = s.runHTTPTool(ctx, req.Exec, params)
 	case "shell":
-		writeErr(w, 400, "shell 类型工具是 bash 环境声明，无可执行内容")
+		s.writeErrL(w, 400, "shell-type tools are bash environment declarations with nothing to execute", "shell 类型工具是 bash 环境声明，无可执行内容")
 		return
 	default:
-		writeErr(w, 400, "未知工具类型: "+req.Kind)
+		s.writeErrL(w, 400, "unknown tool kind: "+req.Kind, "未知工具类型: "+req.Kind)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"output": res.Flatten(), "is_error": res.IsError})
@@ -196,6 +196,14 @@ func (s *Server) pgTestCustomTool(w http.ResponseWriter, r *http.Request) {
 // ---------- Python 解释器(检测 + 入库 + 覆盖) ----------
 
 const settingPythonInterp = "python_interpreter"
+
+// settingContentLang stores the CONTENT language ("zh-CN" | "en-US") used to seed
+// built-in prompts, tool descriptions and skill files. Separate from the browser
+// UI locale: seeded content is server-side and shared by all clients.
+const settingContentLang = "content_lang"
+
+// ContentLangs lists the supported content languages (first = default).
+var ContentLangs = []string{"zh-CN", "en-US"}
 
 // detectPython finds a python interpreter absolute path (python3 preferred).
 func detectPython() string {
@@ -224,7 +232,7 @@ func (s *Server) seedPythonInterpreter() {
 	}
 	if p := detectPython(); p != "" {
 		_ = s.m.pg.SetSetting(settingPythonInterp, p)
-		log.Printf("[custom-tool] 自动检测到 python 解释器: %s", p)
+		log.Printf("[custom-tool] auto-detected python interpreter: %s", p)
 	}
 }
 
@@ -296,7 +304,7 @@ func (s *Server) buildCustomTool(t *db.Tool) actool.CoreTool {
 		case "http":
 			return s.runHTTPTool(ctx, execRaw, params)
 		default:
-			return actool.Errorf("未知自定义工具类型: " + kind), nil
+			return actool.Errorf("unknown custom tool kind: " + kind), nil
 		}
 	}
 	return actool.Build(actool.Spec{
@@ -336,7 +344,7 @@ func ensureSchema(raw json.RawMessage) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"args": map[string]any{"type": "string", "description": "命令/参数(自由文本)"},
+			"args": map[string]any{"type": "string", "description": "command/arguments (free text)"},
 		},
 	}
 }
@@ -347,7 +355,7 @@ func (s *Server) runCommandTool(ctx context.Context, execRaw json.RawMessage, pa
 	var spec commandExec
 	_ = json.Unmarshal(execRaw, &spec)
 	if strings.TrimSpace(spec.Command) == "" {
-		return actool.Errorf("command 为空"), nil
+		return actool.Errorf("command is empty"), nil
 	}
 	cmd := renderTemplate(spec.Command, params, shellQuote)
 	// 复用 Bash 也在用的底层 run(经 Bash CoreTool.Call):自动继承安全 floor/超时/
@@ -367,11 +375,11 @@ func (s *Server) runScriptTool(ctx context.Context, key string, execRaw json.Raw
 	var spec scriptExec
 	_ = json.Unmarshal(execRaw, &spec)
 	if strings.TrimSpace(spec.Code) == "" {
-		return actool.Errorf("script code 为空"), nil
+		return actool.Errorf("script code is empty"), nil
 	}
 	interp := s.pythonInterpreter()
 	if interp == "" {
-		return actool.Errorf("未配置且未检测到 python 解释器(在系统配置里设置)"), nil
+		return actool.Errorf("no python interpreter configured or detected (set it in system settings)"), nil
 	}
 	workDir := s.m.dir
 	var sessionEnv []string
@@ -423,7 +431,7 @@ func execPython(ctx context.Context, interp, key, code string, params map[string
 	out, err := c.CombinedOutput()
 	body := string(out)
 	if runCtx.Err() == context.DeadlineExceeded {
-		body += "\n... [超时终止] ..."
+		body += "\n... [terminated due to timeout] ..."
 	} else if err != nil {
 		body += "\n[exit: " + err.Error() + "]"
 	}
@@ -441,7 +449,7 @@ func (s *Server) runHTTPTool(ctx context.Context, execRaw json.RawMessage, param
 	}
 	rawURL := renderTemplate(spec.URL, params, identity)
 	if strings.TrimSpace(rawURL) == "" {
-		return actool.Errorf("http url 为空"), nil
+		return actool.Errorf("http url is empty"), nil
 	}
 	var bodyReader io.Reader
 	if spec.Body != "" {
@@ -462,7 +470,7 @@ func (s *Server) runHTTPTool(ctx context.Context, execRaw json.RawMessage, param
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return actool.Errorf("请求失败: " + err.Error()), nil
+		return actool.Errorf("request failed: " + err.Error()), nil
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -554,5 +562,5 @@ func clipOutput(s string, tc *actool.ToolContext) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + fmt.Sprintf("\n... [截断，共 %d 字节] ...", len(s))
+	return s[:max] + fmt.Sprintf("\n... [truncated, %d bytes total] ...", len(s))
 }

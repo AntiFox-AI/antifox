@@ -82,7 +82,7 @@ func (e *Engine) stampFirstRun(t *Task) {
 	}
 	if dl > 0 {
 		e.deadline.Store(t.ID, dl)
-		log.Printf("[deadline] task %s 首次运行,截止于 %s", t.ID, time.Unix(dl, 0).Format("2006-01-02 15:04:05"))
+		log.Printf("[deadline] task %s first run, deadline %s", t.ID, time.Unix(dl, 0).Format("2006-01-02 15:04:05"))
 	}
 }
 
