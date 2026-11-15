@@ -4,12 +4,14 @@ import { initReactI18next } from "react-i18next";
 import enUS from "./locales/en-US.json";
 import zhCN from "./locales/zh-CN.json";
 import zhTW from "./locales/zh-TW.json";
+import jaJP from "./locales/ja-JP.json";
 
-// 支持的三种语言。label 用各自母语名（永不翻译），供语言切换器展示。
+// 支持的四种语言。label 用各自母语名（永不翻译），供语言切换器展示。
 export const LANGS = [
   { code: "zh-CN", label: "简体中文" },
   { code: "zh-TW", label: "繁體中文" },
   { code: "en-US", label: "English" },
+  { code: "ja-JP", label: "日本語" },
 ] as const;
 
 export type LangCode = (typeof LANGS)[number]["code"];
@@ -28,6 +30,7 @@ if (!i18n.isInitialized) {
       "zh-CN": { translation: zhCN },
       "zh-TW": { translation: zhTW },
       "en-US": { translation: enUS },
+      "ja-JP": { translation: jaJP },
     },
     lng: DEFAULT_LANG,
     fallbackLng: DEFAULT_LANG,
