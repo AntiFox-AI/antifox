@@ -139,7 +139,9 @@ func (p *openaiResponsesProvider) Stream(ctx context.Context, req CompletionRequ
 		}
 		resp, err := doStream(ctx, p.cfg, p.cfg.BaseURL+"/responses", body, func(r *http.Request) {
 			p.setHeaders(r)
-			r.Header.Set("accept", "text/event-stream")
+			// Keep application/json acceptable: some gateways 406 a bare
+			// text/event-stream Accept even when stream:true (see openai.go).
+			r.Header.Set("accept", "text/event-stream, application/json")
 		}, "openai-responses")
 		if err != nil {
 			yield(StreamEvent{}, err)
