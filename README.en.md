@@ -88,8 +88,8 @@ Open **http://localhost:8787**.
 The **full source is open** (AGPL-3.0). Requires Go 1.24+ / Node 20+ / PostgreSQL / Python 3 (report rendering):
 
 ```bash
-cd web && NEXT_EXPORT=1 npx next build && cd ..    # frontend static export
-cp -r web/out/. server/webui/dist/                 # embed the frontend
+cd web && NEXT_EXPORT=1 npx next build && cd ..           # frontend static export
+mkdir -p server/webui/dist && cp -r web/out/. server/webui/dist/   # embed the frontend (dist is a build artifact, untracked — create the dir first)
 CGO_ENABLED=0 go build -tags embedui -o antifox ./cmd/antifox
 ./antifox
 ```
@@ -181,20 +181,21 @@ For hands-on write-ups, feature deep-dives, and release updates, follow our WeCh
 
 Licensed under **AGPL-3.0** — see [LICENSE](LICENSE). Use, modification, and redistribution (including offering it as a networked service) must comply with its terms.
 
-**AntiFox is for personal study, code research, and local technical validation only. It must not be used to perform actual testing against any online system or website.**
+**AntiFox is a penetration-testing tool. Use it only against targets you own, control, or have explicit written authorization to test.** The guidelines below are legal-compliance reminders and safe-use guidance — they are **not additional license restrictions beyond AGPL-3.0**. AGPL grants you the freedom to run the software for any purpose; testing systems without authorization is itself unlawful in most jurisdictions, independent of this project's terms.
 
 ### Permitted use
+- Security assessment and penetration testing of systems **you own or control**, or targets you have **explicit authorization** to test;
+- Internal security checks within your organization, and authorized testing of dev / staging / pre-production environments;
 - Reading, studying, and researching this project, and verifying technical principles in a local, isolated environment;
-- Personal learning, academic research, and other non-offensive purposes.
+- Security research, teaching, and academic use.
 
 ### Prohibited
-- Using this tool to scan, probe, exploit, or attack any website, online service, or networked system;
-- Using this tool for any real penetration testing, red/blue exercises, or production environment;
+- **Scanning, probing, exploiting, or attacking any system, website, or networked service without authorization**;
 - Using it for intrusion, data theft, ransom, denial of service, or any destructive or criminal activity;
 - Using it for anything violating the laws and regulations of your country / region.
 
 ### Compliance
-Users must comply with all applicable laws and regulations on cybersecurity, data protection, and computer crime in their country / region. All legal responsibility and consequences arising from use of this project rest solely with the user.
+Before any security testing, obtain lawful authorization for the target, and comply with all applicable laws and regulations on cybersecurity, data protection, and computer crime in your country / region. All legal responsibility and consequences arising from use of this project rest solely with the user.
 
 ### Disclaimer
 This project is provided "AS IS", without warranty of any kind. The authors and contributors are not liable for any direct or indirect loss, data loss, system damage, or legal dispute arising from use of this tool. By downloading, installing, or using this project, you acknowledge that you have read, understood, and agree to all of the above.
