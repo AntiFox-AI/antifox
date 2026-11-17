@@ -202,7 +202,11 @@ func (p *openaiProvider) Stream(ctx context.Context, req CompletionRequest) iter
 			resp, err := doStream(ctx, p.cfg, p.cfg.BaseURL+"/chat/completions", body, func(r *http.Request) {
 				r.Header.Set("content-type", "application/json")
 				r.Header.Set("authorization", "Bearer "+p.cfg.APIKey)
-				r.Header.Set("accept", "text/event-stream")
+				// Some OpenAI-compatible gateways (vLLM-based ones included) reject a
+				// request whose Accept header does not also list application/json with
+				// 406 "Could not satisfy the request Accept header." — even for a
+				// stream:true request. Offer SSE first, JSON as an acceptable fallback.
+				r.Header.Set("accept", "text/event-stream, application/json")
 			}, "openai")
 			if err != nil {
 				yield(StreamEvent{}, err)
