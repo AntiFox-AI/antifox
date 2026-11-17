@@ -1101,6 +1101,8 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		APIKey          string `json:"api_key"`
 		ReasoningEffort string `json:"reasoning_effort"`
 		ProfileID       *int64 `json:"profile_id"` // 测已存 profile 时传入：api_key 为空则用它存的 key
+		// 会话头名：表单传入即用(含空串=不发)；未传(nil)且指定了 profile 时用其已存值。
+		SessionHeaderKey *string `json:"session_header_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
@@ -1110,11 +1112,20 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 	// mirror production: send the SAME thinking params so a provider that rejects the
 	// reasoning_effort/thinking field fails the test too (no false "test ok, run 400").
 	cfg.ReasoningEffort = req.ReasoningEffort
+	// 同理带上会话头：opencode 等网关缺会话头直接 400，不带则测试与运行行为不一致。
+	if req.SessionHeaderKey != nil {
+		cfg.SessionHeaderKey = strings.TrimSpace(*req.SessionHeaderKey)
+	}
 	// API Key 解析优先级：表单输入 > 指定 profile 存的 key > 全局配置的 key。
 	// 已存 profile 的 key 不回传浏览器，所以测试已存配置时表单为空，需从 DB 取。
-	if cfg.APIKey == "" && req.ProfileID != nil {
+	if (cfg.APIKey == "" || req.SessionHeaderKey == nil) && req.ProfileID != nil {
 		if p, err := s.m.pg.ProfileByID(*req.ProfileID); err == nil && p != nil {
-			cfg.APIKey = p.APIKey
+			if cfg.APIKey == "" {
+				cfg.APIKey = p.APIKey
+			}
+			if req.SessionHeaderKey == nil {
+				cfg.SessionHeaderKey = p.SessionHeaderKey
+			}
 		}
 	}
 	if cfg.APIKey == "" {

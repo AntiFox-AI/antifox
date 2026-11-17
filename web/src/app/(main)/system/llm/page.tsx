@@ -395,6 +395,7 @@ export default function LLMPage() {
       // test with the SAME thinking params the profile will run with, so an
       // unsupported reasoning field fails here instead of only at run time.
       // 传当前选中 profile 的 id：输入框留空时，后端用该 profile 已存的 key 测试。
+      // 会话头同理随表单传：opencode 等网关缺会话头直接 400，测试须与运行一致。
       const r = await api.testLLM(
         format,
         model,
@@ -403,6 +404,7 @@ export default function LLMPage() {
         proxy,
         toStore(thinkMode, effort),
         selectedId ? Number(selectedId) : undefined,
+        sessionHeaderKey.trim(),
       );
       if (r.ok) toast.success(t("llm.toast.connectOk", { latency: r.latency_ms ?? "?", model: r.model ?? model }));
       else toast.error(t("llm.toast.connectFailed", { error: r.error ?? t("llm.unknown") }));

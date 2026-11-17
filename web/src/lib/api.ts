@@ -402,6 +402,7 @@ export const api = {
     proxy = "",
     reasoning_effort = "",
     profile_id?: number,
+    session_header_key = "",
   ) =>
     post<{ ok: boolean; error?: string; latency_ms?: number; model?: string }>("/llm/test", {
       provider,
@@ -411,6 +412,7 @@ export const api = {
       api_key,
       reasoning_effort,
       profile_id,
+      session_header_key,
     }),
   llmProfiles: () => get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
   saveLLMProfile: (p: {
