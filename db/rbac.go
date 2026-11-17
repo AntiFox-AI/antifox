@@ -64,15 +64,16 @@ var RBACPermissions = map[string]string{
 
 // RBACUser 平台账号。
 type RBACUser struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	DisplayName  string    `json:"display_name"`
-	PasswordHash string    `json:"-"`
-	Enabled      bool      `json:"enabled"`
-	IsBuiltin    bool      `json:"is_builtin"`
-	TokenVersion int       `json:"-"` // 改密/停用自增；签 JWT 时写入，校验时比对，不匹配即失效
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Username           string    `json:"username"`
+	DisplayName        string    `json:"display_name"`
+	PasswordHash       string    `json:"-"`
+	Enabled            bool      `json:"enabled"`
+	IsBuiltin          bool      `json:"is_builtin"`
+	TokenVersion       int       `json:"-"` // 改密/停用自增；签 JWT 时写入，校验时比对，不匹配即失效
+	MustChangePassword bool      `json:"must_change_password"` // 首启弱默认密码：首次登录强制改密
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // RBACRole 角色（权限集合 + 资源范围）。
@@ -120,8 +121,9 @@ func (d *DB) RBACNeedsBootstrap() (bool, error) {
 }
 
 // BootstrapRBAC 幂等地播种权限目录 + 4 个系统角色 + 授权；
-// 若无用户且传入 adminHash，则用它建内置 admin 账号（从旧单用户密码迁移）。
-func (d *DB) BootstrapRBAC(adminHash string) error {
+// 若无用户且传入 adminHash，则用它建内置 admin 账号。mustChange=true 时该 admin 首次
+// 登录强制改密（用于旧弱默认密码迁移场景）；setup 向导里用户自己选的强密码则传 false。
+func (d *DB) BootstrapRBAC(adminHash string, mustChange bool) error {
 	now := time.Now()
 	tx, err := d.Begin()
 	if err != nil {
@@ -212,8 +214,10 @@ func (d *DB) BootstrapRBAC(adminHash string) error {
 	}
 	if userCount == 0 && strings.TrimSpace(adminHash) != "" {
 		id := "admin"
-		if _, err := tx.Exec(`INSERT INTO rbac_users(id,username,display_name,password_hash,enabled,is_builtin,created_at,updated_at)
-			VALUES ($1,'admin','管理员',$2,true,true,$3,$3)`, id, adminHash, now); err != nil {
+		// mustChange 由调用方决定：迁移旧（可能弱默认）密码时 true → 首次登录强制改密；
+		// setup 向导里用户自己刚选的强密码时 false → 不逼其重复改密（否则会卡在全站 403）。
+		if _, err := tx.Exec(`INSERT INTO rbac_users(id,username,display_name,password_hash,enabled,is_builtin,must_change_password,created_at,updated_at)
+			VALUES ($1,'admin','管理员',$2,true,true,$4,$3,$3)`, id, adminHash, now, mustChange); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO rbac_user_roles(user_id,role_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, id, RBACRoleAdmin); err != nil {
@@ -225,13 +229,13 @@ func (d *DB) BootstrapRBAC(adminHash string) error {
 
 func scanRBACUser(row interface{ Scan(...any) error }) (*RBACUser, error) {
 	var u RBACUser
-	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Enabled, &u.IsBuiltin, &u.TokenVersion, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.DisplayName, &u.PasswordHash, &u.Enabled, &u.IsBuiltin, &u.TokenVersion, &u.MustChangePassword, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
 }
 
-const rbacUserCols = `id,username,display_name,password_hash,enabled,is_builtin,token_version,created_at,updated_at`
+const rbacUserCols = `id,username,display_name,password_hash,enabled,is_builtin,token_version,must_change_password,created_at,updated_at`
 
 func (d *DB) GetRBACUserByUsername(username string) (*RBACUser, error) {
 	username = strings.TrimSpace(strings.ToLower(username))
@@ -269,6 +273,10 @@ func (d *DB) ResolveRBACAccess(userID string) (*RBACAccess, error) {
 		}
 		acc.Roles = append(acc.Roles, r)
 		acc.Scope = mergeScope(acc.Scope, r.Scope)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
 	}
 	rows.Close()
 	prows, err := d.Query(`SELECT DISTINCT rp.permission_key FROM rbac_role_permissions rp
@@ -393,8 +401,9 @@ func (d *DB) UpdateRBACUserPassword(userID, passwordHash string) error {
 	if strings.TrimSpace(userID) == "" || passwordHash == "" {
 		return errors.New("参数缺失")
 	}
-	// token_version+1：改密即作废该用户此前签发的所有 JWT（旧 token 下次请求被拒）。
-	_, err := d.Exec(`UPDATE rbac_users SET password_hash=$1,token_version=token_version+1,updated_at=now() WHERE id=$2`, passwordHash, userID)
+	// token_version+1：改密即作废该用户此前签发的所有 JWT（旧 token 下次请求被拒）；
+	// 同时清 must_change_password，改密后解除「首次登录强制改密」限制。
+	_, err := d.Exec(`UPDATE rbac_users SET password_hash=$1,token_version=token_version+1,must_change_password=false,updated_at=now() WHERE id=$2`, passwordHash, userID)
 	return err
 }
 

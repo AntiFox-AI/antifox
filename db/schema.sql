@@ -25,6 +25,18 @@ DROP TRIGGER IF EXISTS trg_companies_upd ON companies;
 CREATE TRIGGER trg_companies_upd BEFORE UPDATE ON companies
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- antifox_is_inet 判断文本是否为合法 inet，异常捕获而非 PG16+ 的 pg_input_is_valid（跨版本）。
+-- 资产归属对 assets.ip 做 ::inet 转换前用它过滤脏值（ip 列可能混入域名等非 IP 文本）。
+CREATE OR REPLACE FUNCTION antifox_is_inet(txt text) RETURNS boolean AS $$
+BEGIN
+    IF txt IS NULL THEN RETURN false; END IF;
+    PERFORM txt::inet;
+    RETURN true;
+EXCEPTION WHEN others THEN
+    RETURN false;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 CREATE TABLE IF NOT EXISTS assets (
     id              BIGSERIAL PRIMARY KEY,
     type            TEXT NOT NULL CHECK (type IN (
@@ -583,10 +595,12 @@ CREATE TABLE IF NOT EXISTS rbac_users (
     enabled       BOOLEAN NOT NULL DEFAULT true,
     is_builtin    BOOLEAN NOT NULL DEFAULT false,
     token_version INT NOT NULL DEFAULT 0,  -- 改密/停用自增；JWT 携带旧版本即失效（强制重新登录）
+    must_change_password BOOLEAN NOT NULL DEFAULT false,  -- 首启弱默认密码：首次登录强制改密
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE rbac_users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;  -- 存量库补列（幂等）
+ALTER TABLE rbac_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false;  -- 存量库补列（幂等）
 
 CREATE TABLE IF NOT EXISTS rbac_roles (
     id          TEXT PRIMARY KEY,

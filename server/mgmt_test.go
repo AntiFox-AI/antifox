@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+	"time"
+
+	"antifox/db"
 )
 
 // TestMgmtAPI exercises the PostgreSQL-backed management API through the real mux.
@@ -18,10 +22,16 @@ func TestMgmtAPI(t *testing.T) {
 	if m.pg == nil {
 		t.Skip("postgres unavailable — skipping management API test")
 	}
+	defer m.Close()
 	td := t.TempDir()
 	s := New(context.Background(), m, td, td)
 	h := s.Handler()
-	tok, err := signJWT(s.jwtKey, "test-admin", "admin")
+	u, err := m.pg.CreateRBACUser("mgmt-test-"+strconv.FormatInt(time.Now().UnixNano(), 10), "", "unused", true, []string{db.RBACRoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.pg.DeleteRBACUser(u.ID)
+	tok, err := signJWT(s.jwtKey, u.ID, u.Username)
 	if err != nil {
 		t.Fatalf("sign jwt: %v", err)
 	}

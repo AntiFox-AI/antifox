@@ -7,6 +7,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -88,14 +89,31 @@ func (d *DB) GetKnowledgeConfig() (*KnowledgeConfig, error) {
 }
 
 // SaveKnowledgeConfig upserts the embedder config. Empty apiKey keeps the existing key.
+// ErrKnowledgeKeyRequired 表示「改了嵌入服务地址但没重输 API Key」——拒绝沿用旧密钥，
+// 防止 operator 把已有密钥转发到其控制的接收器。
+var ErrKnowledgeKeyRequired = errors.New("修改嵌入服务地址时需要重新输入 API Key")
+
+// SaveKnowledgeConfig upserts the embedder config. 空 apiKey 仅在地址未变时沿用旧密钥；
+// 改了地址却留空密钥则返回 ErrKnowledgeKeyRequired（凭据必须重新输入并绑定新目标）。
 func (d *DB) SaveKnowledgeConfig(enabled bool, baseURL, model, apiKey string, dim int) error {
 	if dim <= 0 {
 		dim = 1024
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		_, err := d.Exec(`UPDATE knowledge_config SET enabled=$1, base_url=$2, model=$3, dim=$4, updated_at=now() WHERE id=1`,
+		res, err := d.Exec(`UPDATE knowledge_config SET enabled=$1, base_url=$2, model=$3, dim=$4, updated_at=now()
+			WHERE id=1 AND (base_url=$2 OR COALESCE(api_key,'')='')`,
 			enabled, baseURL, model, dim)
-		return err
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrKnowledgeKeyRequired
+		}
+		return nil
 	}
 	_, err := d.Exec(`UPDATE knowledge_config SET enabled=$1, base_url=$2, model=$3, api_key=$4, dim=$5, updated_at=now() WHERE id=1`,
 		enabled, baseURL, model, apiKey, dim)

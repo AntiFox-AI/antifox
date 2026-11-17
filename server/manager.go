@@ -142,6 +142,11 @@ func NewManager(dir, proxyAddr string) (*Manager, error) {
 		return nil, err
 	}
 	m := &Manager{dir: dir, pg: pg, assets: pg.Assets(), tasks: map[string]*Task{}, interceptor: intercept.New(pg)}
+	// 加载可信反代网段（默认仅回环）。反代不在回环时经设置 auth.trusted_proxies 显式声明，
+	// 否则其转发的 X-Forwarded-For 不被采信——避免私网客户端伪造来源绕过登录锁定。
+	if v, _, _ := pg.GetSetting("auth.trusted_proxies"); strings.TrimSpace(v) != "" {
+		SetTrustedProxies(v)
+	}
 	if proxyAddr != "" {
 		tr, err := traffic.Open(filepath.Join(dir, "traffic"), proxyAddr)
 		if err != nil {

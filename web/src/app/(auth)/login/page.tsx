@@ -42,9 +42,10 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const { token } = await api.login(username.trim(), password);
+      const { token, must_change_password } = await api.login(username.trim(), password);
       auth.setToken(token);
-      router.replace("/function/tasks");
+      // 首启弱默认密码：强制先改密，再进入主界面（后端亦会对其它 API 拦截）。
+      router.replace(must_change_password ? "/force-change-password" : "/function/tasks");
     } catch (e) {
       setError((e as Error)?.message || t("login.errFailed"));
     } finally {

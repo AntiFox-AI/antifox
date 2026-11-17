@@ -267,7 +267,7 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 	}
 	_ = pg.TouchConversation(c.ID)
 
-	s.runConversation(c, msg, busyKey)
+	s.runConversation(c, msg, busyKey, isAdmin(r))
 	writeJSON(w, 202, map[string]any{"status": "accepted"})
 }
 
@@ -275,18 +275,18 @@ func (s *Server) pgSendConversationMessage(w http.ResponseWriter, r *http.Reques
 // (each conversation is independent → parallel). Steps stream to
 // conversation_activities. Shared by the chat HTTP handler and the P3 scheduler.
 // busyKey clears when the run ends (best-effort in-flight marker).
-func (s *Server) runConversation(c *db.Conversation, msg, busyKey string) {
-	go s.runConversationSync(c, msg, busyKey)
+func (s *Server) runConversation(c *db.Conversation, msg, busyKey string, admin bool) {
+	go s.runConversationSync(c, msg, busyKey, admin)
 }
 
 // runConversationSync runs ONE agent turn on a conversation and BLOCKS until the
 // run ends (clearing busyKey). runConversation wraps it in a goroutine for the
 // fire-and-forget chat path; the P3 trigger queue calls it directly so it can wait
 // for completion before starting the next queued fire for the same agent.
-func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string) {
+func (s *Server) runConversationSync(c *db.Conversation, msg, busyKey string, admin bool) {
 	// Per-run cancellable context so a manual stop (pgStopConversation) can abort
 	// just this session. Registered under chatMu so the stop handler can find it.
-	ctx, cancel := context.WithCancel(intercept.WithConvID(s.ctx, c.ID))
+	ctx, cancel := context.WithCancel(intercept.WithConvID(context.WithValue(s.ctx, adminRunCtxKey, admin), c.ID))
 	s.chatMu.Lock()
 	s.chatCancel[busyKey] = cancel
 	s.chatMu.Unlock()
@@ -434,7 +434,7 @@ func (s *Server) runTriggeredRun(item triggeredRun) {
 	s.chatMu.Lock()
 	s.chatBusy[busyKey] = true
 	s.chatMu.Unlock()
-	s.runConversationSync(c, item.message, busyKey)
+	s.runConversationSync(c, item.message, busyKey, false)
 }
 
 // firstLine returns a single-line, length-capped preview (shared with summaries).

@@ -806,8 +806,9 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	// version lets the frontend detect the swap after a one-click update completes
-	// (it polls /api/health until the reported version changes).
-	writeJSON(w, 200, map[string]any{"ok": true, "service": "antifox", "version": BuildVersion})
+	// (it polls /api/health until the reported version changes). Keep the response
+	// minimal — no service name / extra fingerprint beyond the version the updater needs.
+	writeJSON(w, 200, map[string]any{"ok": true, "version": BuildVersion})
 }
 
 func (s *Server) stats(w http.ResponseWriter, r *http.Request) {

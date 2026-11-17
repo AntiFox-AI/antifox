@@ -644,6 +644,12 @@ func (s *Server) pgListMCP(w http.ResponseWriter, r *http.Request) {
 	if ms == nil {
 		ms = []*db.MCPServer{}
 	}
+	// 不回显已保存的环境变量 / 请求头明文（可能含 API Key、Authorization 等敏感凭据），
+	// 只透出「是否已配置」由前端自行判断；更新时后端用空值保留旧密逻辑（见 SaveMCP）。
+	for _, m := range ms {
+		m.Env = nil
+		m.Headers = nil
+	}
 	writeJSON(w, 200, map[string]any{"servers": ms})
 }
 
@@ -655,6 +661,12 @@ func (s *Server) pgSaveMCP(w http.ResponseWriter, r *http.Request) {
 	var m db.MCPServer
 	if err := decode(r, &m); err != nil {
 		writeErr(w, 400, err.Error())
+		return
+	}
+	// 修改已有 MCP 收归 admin：已有配置可能含 env/headers 凭据，operator 改地址可把旧凭据
+	// 转发到新目标。新建（ID==0）仍按 mcp:write 开放给 operator。
+	if m.ID != 0 && !isAdmin(r) {
+		writeErr(w, 403, "仅管理员可修改已有 MCP 配置")
 		return
 	}
 	// stdio MCP 由服务端把 command/args 作为子进程拉起，等价于宿主机命令执行——收归 admin。

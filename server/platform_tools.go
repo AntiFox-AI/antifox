@@ -154,7 +154,7 @@ func toDBTool(a customToolToolInput) *db.Tool {
 func (s *Server) toolCreateCustomTool() actool.CoreTool {
 	return wrTool("create_custom_tool", "创建一个自定义工具(shell/command/script/http)。shell=bash 环境声明，只需 key+description+agents，无需 exec/schema。",
 		customToolSchema("工具 key(小写字母开头，字母/数字/下划线)"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			var a customToolToolInput
 			_ = json.Unmarshal(in, &a)
 			a.Key = strings.TrimSpace(a.Key)
@@ -163,6 +163,11 @@ func (s *Server) toolCreateCustomTool() actool.CoreTool {
 			}
 			if a.Kind != "shell" && a.Kind != "command" && a.Kind != "script" && a.Kind != "http" {
 				return actool.Errorf("kind 需为 shell / command / script / http"), nil
+			}
+			// 宿主命令执行类(command/script/shell)与 HTTP 层一致收归 admin：非 admin 会话的
+			// agent 不得创建会在宿主机执行命令的工具。
+			if hostExecToolKind(a.Kind) && !ctxIsAdmin(ctx) {
+				return actool.Errorf("仅管理员可创建 command/script/shell 类自定义工具（宿主机命令执行）"), nil
 			}
 			if a.Kind == "http" && !hasSchemaProps(a.Schema) {
 				return actool.Errorf("http 工具必须提供参数 JSON Schema(不能留空)"), nil
@@ -180,7 +185,7 @@ func (s *Server) toolCreateCustomTool() actool.CoreTool {
 func (s *Server) toolUpdateCustomTool() actool.CoreTool {
 	return wrTool("update_custom_tool", "修改一个已有的自定义工具(按 key)。",
 		customToolSchema("要修改的自定义工具 key"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			var a customToolToolInput
 			_ = json.Unmarshal(in, &a)
 			existing, _ := s.m.pg.GetTool(a.Key)
@@ -189,6 +194,10 @@ func (s *Server) toolUpdateCustomTool() actool.CoreTool {
 			}
 			if a.Kind != "shell" && a.Kind != "command" && a.Kind != "script" && a.Kind != "http" {
 				return actool.Errorf("kind 需为 shell / command / script / http"), nil
+			}
+			// 新旧任一为宿主命令执行类都收归 admin（防把 http 工具改成 command 绕过）。
+			if (hostExecToolKind(a.Kind) || hostExecToolKind(existing.Kind)) && !ctxIsAdmin(ctx) {
+				return actool.Errorf("仅管理员可修改为/从 command/script/shell 类自定义工具（宿主机命令执行）"), nil
 			}
 			if a.Kind == "http" && !hasSchemaProps(a.Schema) {
 				return actool.Errorf("http 工具必须提供参数 JSON Schema(不能留空)"), nil
@@ -245,12 +254,16 @@ func (a mcpToolInput) toDB() *db.MCPServer {
 func (s *Server) toolCreateMCP() actool.CoreTool {
 	return wrTool("create_mcp", "创建一个 MCP 服务器(stdio/http)。创建后其工具需按 agent 可见性授权。",
 		mcpSchema(false),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			var a mcpToolInput
 			_ = json.Unmarshal(in, &a)
 			a.ID = 0
 			if strings.TrimSpace(a.Name) == "" || strings.TrimSpace(a.Transport) == "" {
 				return actool.Errorf("name / transport 必填"), nil
+			}
+			// stdio MCP 由服务端把 command/args 作为子进程拉起 = 宿主机命令执行，与 HTTP 层一致收归 admin。
+			if strings.EqualFold(strings.TrimSpace(a.Transport), "stdio") && !ctxIsAdmin(ctx) {
+				return actool.Errorf("仅管理员可创建 stdio 类型的 MCP 服务（会在宿主机启动子进程）"), nil
 			}
 			id, err := s.m.pg.SaveMCP(a.toDB())
 			if err != nil {
@@ -263,13 +276,51 @@ func (s *Server) toolCreateMCP() actool.CoreTool {
 func (s *Server) toolUpdateMCP() actool.CoreTool {
 	return wrTool("update_mcp", "修改一个已有的 MCP 服务器(按 id)。",
 		mcpSchema(true),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
+			// 与 HTTP 层一致：修改已有 MCP 收归 admin（已有配置可能含凭据，非 admin 会话的
+			// agent 不得改地址/命令转发凭据）。调度器/普通会话触发的 agent run 为 admin=false。
+			if !ctxIsAdmin(ctx) {
+				return actool.Errorf("仅管理员可修改已有 MCP 配置"), nil
+			}
 			var a mcpToolInput
 			_ = json.Unmarshal(in, &a)
 			if a.ID == 0 {
 				return actool.Errorf("id 必填"), nil
 			}
-			if _, err := s.m.pg.SaveMCP(a.toDB()); err != nil {
+			// 读现有 MCP 填充 input 未提供的连接要素(name/transport/command/args/url)——否则只改
+			// 部分字段时这些字段变空，会被 SaveMCP 误判为"端点变更"而清空已存凭据(env/headers)。
+			var cur *db.MCPServer
+			if list, err := s.m.pg.ListMCP(); err == nil {
+				for _, m := range list {
+					if m.ID == a.ID {
+						cur = m
+						break
+					}
+				}
+			}
+			if cur == nil {
+				return actool.Errorf(fmt.Sprintf("MCP 不存在: id=%d", a.ID)), nil
+			}
+			d := a.toDB()
+			if strings.TrimSpace(d.Name) == "" {
+				d.Name = cur.Name
+			}
+			if strings.TrimSpace(d.Transport) == "" {
+				d.Transport = cur.Transport
+			}
+			if strings.TrimSpace(d.Command) == "" {
+				d.Command = cur.Command
+			}
+			if len(d.Args) == 0 {
+				d.Args = cur.Args
+			}
+			if strings.TrimSpace(d.URL) == "" {
+				d.URL = cur.URL
+			}
+			// mcpToolInput 不含 description/timeout 字段 → 总是保留现有值，不被置空/归零。
+			d.Description = cur.Description
+			d.TimeoutSeconds = cur.TimeoutSeconds
+			if _, err := s.m.pg.SaveMCP(d); err != nil {
 				return actool.Errorf(err.Error()), nil
 			}
 			return actool.Text(fmt.Sprintf("mcp updated: id=%d", a.ID)), nil

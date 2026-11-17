@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,6 +36,15 @@ const (
 type ctxKey int
 
 const accessCtxKey ctxKey = 1
+
+// adminRunCtxKey 标记一个由 admin 会话发起的 agent 运行（供 agent 工具判断是否处于
+// admin 上下文，从而对 update_mcp 等高危工具做与 HTTP 层一致的收归）。
+const adminRunCtxKey ctxKey = 2
+
+func ctxIsAdmin(ctx context.Context) bool {
+	v, _ := ctx.Value(adminRunCtxKey).(bool)
+	return v
+}
 
 // authClaims 携带用户 id(Subject) + 用户名 + 签发时的密码版本（token_version）。
 // Ver 让「改密/停用即踢下线」成立：校验时与库里当前 token_version 比对，不等即拒。
@@ -137,39 +149,64 @@ func (s *Server) requireAuth(h http.Handler) http.Handler {
 			writeErr(w, 401, "未授权或 token 已过期")
 			return
 		}
-		// 解析授权画像（供 RBAC 强制与管理），账号停用 / token 版本过期即拒。
-		if s.m != nil && s.m.pg != nil && claims.Subject != "" {
-			acc, err := s.m.pg.ResolveRBACAccess(claims.Subject)
-			if err == nil && acc != nil {
-				if !acc.User.Enabled {
-					writeErr(w, 403, "账号已停用")
-					return
+		// 授权解析改为 deny-by-default：任何异常（空 subject / DB 不可用 / 查询失败 / 空画像）
+		// 一律拒绝，绝不放行——避免「删除账号后旧 token 仍有效」或「DB 抖动时静默放行」。
+		if strings.TrimSpace(claims.Subject) == "" {
+			writeErr(w, 401, "登录状态已失效，请重新登录")
+			return
+		}
+		if s.m == nil || s.m.pg == nil {
+			writeErr(w, 503, "授权服务暂时不可用")
+			return
+		}
+		acc, err := s.m.pg.ResolveRBACAccess(claims.Subject)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeErr(w, 401, "登录状态已失效，请重新登录")
+			} else {
+				log.Printf("[auth] 授权查询失败: %v", err)
+				writeErr(w, 503, "授权服务暂时不可用")
+			}
+			return
+		}
+		if acc == nil {
+			log.Printf("[auth] 授权查询返回空画像")
+			writeErr(w, 503, "授权服务暂时不可用")
+			return
+		}
+		if !acc.User.Enabled {
+			writeErr(w, 403, "账号已停用")
+			return
+		}
+		// token 版本校验：改密 / 停用后 token_version 自增，旧 token 携带的 Ver
+		// 落后即失效，强制重新登录。
+		if claims.Ver != acc.User.TokenVersion {
+			writeErr(w, 401, "登录状态已失效，请重新登录")
+			return
+		}
+		// 首次登录强制改密：首启 seed 用弱默认密码，must_change_password 用户除 /api/auth/*
+		//（已在本函数开头豁免，含改密端点）外一律拒绝，改密后才可正常使用平台。
+		if acc.User.MustChangePassword {
+			writeErr(w, 403, "首次登录需先修改密码")
+			return
+		}
+		// 滑动续期（= 空闲超时）：token 走过半程且仍在活跃使用，就签发新 token 经
+		// X-Refresh-Token 响应头回传，前端替换存储；空闲超过会话时长则自然过期需重登。
+		if claims.ExpiresAt != nil {
+			ttl := s.sessionTTL()
+			if rem := time.Until(claims.ExpiresAt.Time); rem > 0 && rem < ttl/2 {
+				if fresh, err := signJWTTTL(s.jwtKey, claims.Subject, claims.Username, acc.User.TokenVersion, ttl); err == nil {
+					w.Header().Set("Access-Control-Expose-Headers", "X-Refresh-Token")
+					w.Header().Set("X-Refresh-Token", fresh)
 				}
-				// token 版本校验：改密 / 停用后 token_version 自增，旧 token 携带的 Ver
-				// 落后即失效，强制重新登录。
-				if claims.Ver != acc.User.TokenVersion {
-					writeErr(w, 401, "登录状态已失效，请重新登录")
-					return
-				}
-				// 滑动续期（= 空闲超时）：token 走过半程且仍在活跃使用，就签发新 token 经
-				// X-Refresh-Token 响应头回传，前端替换存储；空闲超过会话时长则自然过期需重登。
-				if claims.ExpiresAt != nil {
-					ttl := s.sessionTTL()
-					if rem := time.Until(claims.ExpiresAt.Time); rem > 0 && rem < ttl/2 {
-						if fresh, err := signJWTTTL(s.jwtKey, claims.Subject, claims.Username, acc.User.TokenVersion, ttl); err == nil {
-							w.Header().Set("Access-Control-Expose-Headers", "X-Refresh-Token")
-							w.Header().Set("X-Refresh-Token", fresh)
-						}
-					}
-				}
-				r = r.WithContext(context.WithValue(r.Context(), accessCtxKey, acc))
-				// 权限强制拦截。安全阀：未映射路由放行；admin(全权)永不被拦；开关 rbac.enforce 默认 true。
-				if s.m.pg.GetBool("rbac.enforce", true) {
-					if perm := permissionForRequest(r.Method, r.URL.Path); perm != "" && !acc.Permissions[perm] {
-						writeErr(w, 403, "权限不足："+perm)
-						return
-					}
-				}
+			}
+		}
+		r = r.WithContext(context.WithValue(r.Context(), accessCtxKey, acc))
+		// 权限强制拦截。安全阀：未映射路由放行；admin(全权)永不被拦；开关 rbac.enforce 默认 true。
+		if s.m.pg.GetBool("rbac.enforce", true) {
+			if perm := permissionForRequest(r.Method, r.URL.Path); perm != "" && !acc.Permissions[perm] {
+				writeErr(w, 403, "权限不足："+perm)
+				return
 			}
 		}
 		h.ServeHTTP(w, r)
@@ -182,7 +219,8 @@ func (s *Server) bootstrapRBAC() {
 		return
 	}
 	legacyHash, _, _ := s.m.pg.GetSetting(authPassKey)
-	if err := s.m.pg.BootstrapRBAC(legacyHash); err != nil {
+	// 迁移路径：旧单用户密码可能是弱默认，迁移成 admin 后首次登录强制改密。
+	if err := s.m.pg.BootstrapRBAC(legacyHash, true); err != nil {
 		log.Printf("[rbac] bootstrap 失败: %v", err)
 		return
 	}
@@ -243,7 +281,8 @@ func (s *Server) authInit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "密码加密失败")
 		return
 	}
-	if err := pg.BootstrapRBAC(string(hash)); err != nil {
+	// setup 向导：用户刚通过强度校验选了自己的密码，不再强制改密（否则初始化后卡全站 403）。
+	if err := pg.BootstrapRBAC(string(hash), false); err != nil {
 		writeErr(w, 500, "初始化失败: "+err.Error())
 		return
 	}
@@ -329,7 +368,9 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	uname := strings.TrimSpace(req.Username)
+	// 锁定计数按规范化（小写）用户名归并：账号匹配大小写不敏感，锁定桶也必须同键，
+	// 否则攻击者轮换 Admin/aDmin/ADMIN 等大小写变体即可各自独立计数、绕过账号级锁定。
+	uname := strings.ToLower(strings.TrimSpace(req.Username))
 	// 暴力破解防护：按 IP + 账号双维度检查锁定状态。命中锁定直接 429，不再做任何
 	// 口令比对（bcrypt 本身耗 CPU，先挡在前面同时也缓解了「海量尝试打满 CPU/连接」）。
 	if locked, retry := s.loginLimiter.locked(ip, uname); locked {
@@ -366,7 +407,8 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 	s.loginLimiter.reset(ip, u.Username) // 成功登录清零该 IP+账号的失败计数
 	pg.RecordAudit(u.Username, "auth", "login", "success", ip, "登录成功", nil)
 	log.Printf("[auth] 登录成功 用户=%q ip=%s", u.Username, ip)
-	writeJSON(w, 200, map[string]any{"token": tok})
+	// must_change_password 让前端在登录后立即跳转改密，后端 requireAuth 亦会拦截。
+	writeJSON(w, 200, map[string]any{"token": tok, "must_change_password": u.MustChangePassword})
 }
 
 // registerLoginFailure 记一次失败到限流器；若恰好触发锁定则写一条审计便于在日志页看到。
@@ -416,20 +458,83 @@ func validatePasswordStrength(pw string) string {
 	return ""
 }
 
-// clientIP 提取客户端 IP（优先 X-Forwarded-For / X-Real-IP，回退 RemoteAddr）。
+// clientIP 提取客户端 IP。只有请求来自可信代理（回环 / 内网，如 nginx 反代）时才信任
+// 转发头 X-Real-IP / X-Forwarded-For；否则用直连来源 RemoteAddr，防止客户端伪造转发头
+// 绕过来源级限速 / 锁定。可信代理下：X-Real-IP（覆盖式）优先，其次 X-Forwarded-For
+// 取最后一个（代理逐跳追加，最靠近我们的才是真实来源，客户端可控的前缀被忽略）。
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			return strings.TrimSpace(xff[:i])
+	remote := remoteAddrIP(r.RemoteAddr)
+	if isTrustedProxyIP(remote) {
+		if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
+			return xr
 		}
-		return strings.TrimSpace(xff)
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[len(parts)-1])
+		}
 	}
-	if xr := r.Header.Get("X-Real-IP"); xr != "" {
-		return strings.TrimSpace(xr)
+	return remote
+}
+
+// remoteAddrIP 从 net/http 的 RemoteAddr 取 IP 部分。用 net.SplitHostPort 正确处理
+// IPv6（"[::1]:port" → "::1"，去掉方括号，LastIndexByte 做不到）；无端口时去方括号兜底。
+func remoteAddrIP(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr)); err == nil {
+		return host
 	}
-	host := r.RemoteAddr
-	if i := strings.LastIndexByte(host, ':'); i >= 0 {
-		host = host[:i]
+	return strings.Trim(strings.TrimSpace(remoteAddr), "[]")
+}
+
+// trustedProxyNets 是可信反代网段，默认仅回环（127.0.0.0/8 + ::1）。
+// ⚠️ 不默认信任整个私网——否则内网/VPN 部署里任意私网客户端都能伪造转发头绕过来源级
+// 锁定。反代不在回环时，用设置 auth.trusted_proxies 显式声明其网段（见 SetTrustedProxies）。
+var trustedProxyNets = loopbackProxyNets()
+
+func loopbackProxyNets() []*net.IPNet {
+	var nets []*net.IPNet
+	for _, c := range []string{"127.0.0.0/8", "::1/128"} {
+		if _, n, err := net.ParseCIDR(c); err == nil {
+			nets = append(nets, n)
+		}
 	}
-	return host
+	return nets
+}
+
+// SetTrustedProxies 用回环 + 额外 CIDR/IP（逗号或空白分隔）重建可信代理集合；非法项忽略，
+// 空输入=仅回环。启动时由 server 从设置加载一次（之后只读，无并发写）。
+func SetTrustedProxies(list string) {
+	nets := loopbackProxyNets()
+	for _, f := range strings.FieldsFunc(list, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '\t' }) {
+		if f == "" {
+			continue
+		}
+		if !strings.Contains(f, "/") { // 裸 IP → 单主机掩码
+			if ip := net.ParseIP(f); ip != nil {
+				if ip.To4() != nil {
+					f += "/32"
+				} else {
+					f += "/128"
+				}
+			}
+		}
+		if _, n, err := net.ParseCIDR(f); err == nil {
+			nets = append(nets, n)
+		}
+	}
+	trustedProxyNets = nets
+}
+
+// isTrustedProxyIP 判断直连来源是否为可信反代（在 trustedProxyNets 内）。只有可信代理
+// 设置的转发头才被采信——直连来源（公网/未声明私网）一律不信任转发头，杜绝伪造绕过限速。
+func isTrustedProxyIP(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for _, n := range trustedProxyNets {
+		if n.Contains(parsed) {
+			return true
+		}
+	}
+	return false
 }
