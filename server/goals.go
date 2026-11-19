@@ -64,5 +64,15 @@ func (s *Server) goalsLLMConfig(t *Task) (agent.Config, bool) {
 			return cfg, true
 		}
 	}
-	return s.loadLLMConfig()
+	if cfg, ok := s.loadLLMConfig(); ok {
+		return cfg, true
+	}
+	// Deployments that configure the LLM via env have no DB profile; fall back to
+	// the config already applied to the engine (same source planner/worker use).
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	if s.llmOn {
+		return s.llmCfg, true
+	}
+	return agent.Config{}, false
 }
