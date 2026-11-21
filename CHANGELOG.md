@@ -1,5 +1,7 @@
 # 更新日志 · Changelog
 
+中文 | [English](CHANGELOG.en.md)
+
 本项目的版本更新摘要。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本遵循 [SemVer](https://semver.org/)。
 
 ## v2.0.3
