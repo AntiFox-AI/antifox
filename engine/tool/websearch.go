@@ -33,8 +33,9 @@ type searchProvider interface {
 // WebSearchConfig selects and configures the active search backend.
 type WebSearchConfig struct {
 	// Backend chooses the provider: "ddgs" (DuckDuckGo scrape, no key),
-	// "brave-free" (Brave Search API, needs BraveAPIKey), or "tavily" (Tavily
-	// Search API, needs TavilyAPIKey). Empty defaults to "ddgs".
+	// "brave-free" (Brave Search API, needs BraveAPIKey), "tavily" (Tavily
+	// Search API, needs TavilyAPIKey), or "keenable" (Keenable Search API, no
+	// key). Empty defaults to "ddgs".
 	Backend string
 	// BraveAPIKey authenticates the "brave-free" backend. Required (and only
 	// used) when Backend == "brave-free".
@@ -110,8 +111,10 @@ func newSearchProvider(cfg WebSearchConfig) (searchProvider, error) {
 			return nil, fmt.Errorf("web_search: backend %q requires a Tavily API key", backend)
 		}
 		return &tavilyProvider{apiKey: key, client: client, endpoint: tavilyEndpoint}, nil
+	case "keenable":
+		return &keenableProvider{client: client, endpoint: keenableEndpoint}, nil
 	default:
-		return nil, fmt.Errorf("web_search: unknown backend %q (want \"ddgs\", \"brave-free\", or \"tavily\")", backend)
+		return nil, fmt.Errorf("web_search: unknown backend %q (want \"ddgs\", \"brave-free\", \"tavily\", or \"keenable\")", backend)
 	}
 }
 
@@ -395,6 +398,84 @@ func (p *tavilyProvider) Search(ctx context.Context, query string, limit int) ([
 			Title:       r.Title,
 			URL:         r.URL,
 			Description: r.Content,
+			Position:    len(out) + 1,
+		})
+	}
+	return out, nil
+}
+
+// ─── Keenable Search ─────────────────────────────────────────────────────────
+// Keenable Search API, keyless public endpoint (https://docs.keenable.ai). No
+// API key; requests are identified by the X-Keenable-Title header and limited
+// per IP (10 req/s, 1,000 req/hour). Results carry page text in `snippet`
+// (`description` is empty), which can run to several thousand characters, so it
+// is collapsed and capped to keep the result list metadata-sized.
+
+const (
+	keenableEndpoint       = "https://api.keenable.ai/v1/search/public"
+	keenableSnippetMaxRune = 500
+)
+
+type keenableProvider struct {
+	client   *http.Client
+	endpoint string
+}
+
+func (p *keenableProvider) Name() string { return "keenable" }
+
+func (p *keenableProvider) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	body, err := json.Marshal(map[string]any{
+		"query":       query,
+		"max_results": min(limit, 20),
+	})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Keenable-Title", "AntiFox")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("Keenable Search is rate-limiting (HTTP %d); try again later or switch backend", resp.StatusCode)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Keenable Search returned HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Results []struct {
+			Title   string `json:"title"`
+			URL     string `json:"url"`
+			Snippet string `json:"snippet"`
+		} `json:"results"`
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("could not parse Keenable Search response: %w", err)
+	}
+	var out []SearchResult
+	for _, r := range payload.Results {
+		if len(out) >= limit {
+			break
+		}
+		if r.URL == "" {
+			continue
+		}
+		desc := strings.Join(strings.Fields(r.Snippet), " ")
+		if rs := []rune(desc); len(rs) > keenableSnippetMaxRune {
+			desc = string(rs[:keenableSnippetMaxRune]) + "…"
+		}
+		out = append(out, SearchResult{
+			Title:       strings.TrimSpace(r.Title),
+			URL:         r.URL,
+			Description: desc,
 			Position:    len(out) + 1,
 		})
 	}
