@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 
 	"antifox/engine/agentcore"
@@ -51,6 +52,7 @@ type GoalSpec struct {
 func DecomposeGoals(ctx context.Context, c Config, goalText, desc string, emit func(db.Activity)) []GoalSpec {
 	prov, err := c.NewProvider()
 	if err != nil {
+		log.Printf("[goals] provider init failed: %v", err)
 		return nil
 	}
 	var out struct {
