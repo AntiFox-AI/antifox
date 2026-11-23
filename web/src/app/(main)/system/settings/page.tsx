@@ -316,6 +316,7 @@ export default function SystemSettingsPage() {
                   <SelectItem value="ddgs">{t("settings.webSearch.sourceDdgs")}</SelectItem>
                   <SelectItem value="brave-free">{t("settings.webSearch.sourceBrave")}</SelectItem>
                   <SelectItem value="tavily">{t("settings.webSearch.sourceTavily")}</SelectItem>
+                  <SelectItem value="keenable">{t("settings.webSearch.sourceKeenable")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -389,6 +390,12 @@ export default function SystemSettingsPage() {
                 {t("settings.webSearch.tavilyHint")}
               </p>
             </div>
+          )}
+
+          {webSearch && backend === "keenable" && (
+            <p className="text-muted-foreground text-xs">
+              {t("settings.webSearch.keenableHint")}
+            </p>
           )}
 
           {webSearch && (
