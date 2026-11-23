@@ -2,6 +2,13 @@
 
 本项目的版本更新摘要。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本遵循 [SemVer](https://semver.org/)。
 
+## v2.1.0
+
+- **项目知识**：新建任务可上传授权书 / 测试范围 / 评分规则 / 已获取凭据等文档，自动纳入本次测试上下文，可选进任务知识库语义检索（支持 md/txt/csv/json/yaml/docx/pdf）。
+- **安全加固**：鉴权 / 限流 / 凭据处理加固，admin 首次登录强制改密。
+- **多架构镜像**：发布产物支持 linux/amd64 + arm64。
+- 若干 LLM 网关兼容性与稳定性改进。
+
 ## v2.0.3
 
 - **LLM 自定义会话头**：每个 LLM 配置可设一个 HTTP 头，头值自动为当前会话 session id —— 适配 opencode 等按 session 做提示缓存 / 粘性路由的网关。
