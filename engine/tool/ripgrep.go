@@ -23,8 +23,8 @@ import (
 //     grep is used, so search always works.
 //
 // Env controls:
-//   - NORMA_DISABLE_RIPGREP=1     force the pure-Go implementation (also used by tests)
-//   - NORMA_RIPGREP_NO_INSTALL=1  use an existing rg but never auto-install
+//   - ANTIFOX_DISABLE_RIPGREP=1     force the pure-Go implementation (also used by tests)
+//   - ANTIFOX_RIPGREP_NO_INSTALL=1  use an existing rg but never auto-install
 
 var (
 	rgOnce     sync.Once
@@ -35,7 +35,7 @@ var (
 // grep should be used. The heavy resolution (detect + optional npm install) runs
 // at most once per process.
 func RipgrepPath() string {
-	if os.Getenv("NORMA_DISABLE_RIPGREP") != "" {
+	if os.Getenv("ANTIFOX_DISABLE_RIPGREP") != "" {
 		return ""
 	}
 	rgOnce.Do(func() { rgResolved = resolveRipgrep() })
@@ -51,7 +51,7 @@ func resolveRipgrep() string {
 	if p, err := exec.LookPath("rg"); err == nil {
 		return p
 	}
-	if os.Getenv("NORMA_RIPGREP_NO_INSTALL") != "" {
+	if os.Getenv("ANTIFOX_RIPGREP_NO_INSTALL") != "" {
 		return ""
 	}
 	return installRipgrepViaNpm()

@@ -144,7 +144,7 @@ func pairForReplay(msgs []llm.Message) []llm.Message {
 
 // truncateHeadForPTLRetry drops the oldest API-round groups when the summary
 // request itself overflows (== claude-code truncateHeadForPTLRetry, 20% fallback
-// branch — Norma cannot read a precise token gap from the provider error). It
+// branch — Antifox cannot read a precise token gap from the provider error). It
 // strips a leading retry marker, groups by API round, drops floor(20%) of the
 // oldest groups (≥1, keeping ≥1), and re-prepends the marker if the result would
 // start with an assistant message (the API requires a user-first message).
@@ -180,7 +180,7 @@ func isPTLMarker(m llm.Message) bool {
 
 // groupByAPIRound partitions messages into one group per API round-trip: a new
 // group begins at each assistant message. Mirrors claude-code
-// groupMessagesByApiRound (Norma has one assistant message per round, so role
+// groupMessagesByApiRound (Antifox has one assistant message per round, so role
 // boundaries == message-id boundaries). Group 0 holds any leading preamble.
 func groupByAPIRound(msgs []llm.Message) [][]llm.Message {
 	var groups [][]llm.Message

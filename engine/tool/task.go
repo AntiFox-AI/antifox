@@ -164,7 +164,7 @@ type Manager struct {
 	sessSeq  int
 }
 
-func baseTaskDir() string { return filepath.Join(os.TempDir(), "norma") }
+func baseTaskDir() string { return filepath.Join(os.TempDir(), "antifox") }
 
 // NewManager creates the per-session task directory and garbage-collects stale
 // directories left by previous sessions.
