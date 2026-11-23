@@ -94,17 +94,19 @@ interface Props {
 export function TaskFormFields({ values, onChange, profiles, idPrefix = "task", showGoalHint }: Props) {
   const { t } = useTranslation();
   return (
-    <div className="grid gap-4 py-2">
-      <div className="grid gap-2">
+    <div className="grid gap-4 py-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-name`}>{t("tasks.name")}</Label>
         <Input
           id={`${idPrefix}-name`}
           placeholder={t("tasks.namePlaceholder")}
           value={values.name}
           onChange={(e) => onChange({ name: e.target.value })}
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-description`}>{t("tasks.description")}</Label>
         <Textarea
           id={`${idPrefix}-description`}
@@ -112,9 +114,11 @@ export function TaskFormFields({ values, onChange, profiles, idPrefix = "task", 
           placeholder={t("tasks.descPlaceholder")}
           value={values.description}
           onChange={(e) => onChange({ description: e.target.value })}
+          data-1p-ignore
+          data-lpignore="true"
         />
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-goal`}>{t("tasks.goal")}</Label>
         <Textarea
           id={`${idPrefix}-goal`}
@@ -122,12 +126,14 @@ export function TaskFormFields({ values, onChange, profiles, idPrefix = "task", 
           placeholder={t("tasks.goalPlaceholder")}
           value={values.goal}
           onChange={(e) => onChange({ goal: e.target.value })}
+          data-1p-ignore
+          data-lpignore="true"
         />
         {showGoalHint && (
           <p className="text-muted-foreground text-xs">{t("tasks.goalEditHint")}</p>
         )}
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-2 sm:col-span-2">
         <Label htmlFor={`${idPrefix}-llm-profile`}>{t("tasks.llmProfile")}</Label>
         <Select value={values.llmProfile} onValueChange={(v) => onChange({ llmProfile: v })}>
           <SelectTrigger id={`${idPrefix}-llm-profile`}>

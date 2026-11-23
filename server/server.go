@@ -384,12 +384,14 @@ func (s *Server) buildPlannerWorker(prov llm.Provider, cfg agent.Config) (*agent
 	wk.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
 	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	wk.SetTrafficResolver(s.resolveFindingTraffic) // record-time: resolve finding steps → traffic exchange ids
+	wk.SetProjectDocsResolver(s.taskProjectDocsBlock) // inject 项目资料(授权/范围/规则) into worker SYSTEM
 	wk.SetMemory(memory.NewStore(filepath.Join(s.m.dir, "memory")))
 	wk.SetWebSearch(s.webSearchFor("worker"))
 	pl := agent.NewPlanner(plProv, plCfg.Model, s.m.dir, tx, plCfg.CompactionWindow(), s.agentMaxTurns("planner"))
-	pl.SetKillWork(s.engine.KillWork)               // planner kill_work → terminate a running work
-	pl.SetSteerWork(s.engine.SteerWork)             // planner steer_work → inject mid-run course-correction
-	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert()) // WebFetch through the recording proxy
+	pl.SetKillWork(s.engine.KillWork)                 // planner kill_work → terminate a running work
+	pl.SetSteerWork(s.engine.SteerWork)               // planner steer_work → inject mid-run course-correction
+	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())   // WebFetch through the recording proxy
+	pl.SetProjectDocsResolver(s.taskProjectDocsBlock) // inject 项目资料 into planner SYSTEM
 	pl.SetWebSearch(s.webSearchFor("planner"))
 	return pl, wk
 }
@@ -594,6 +596,11 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/tasks", s.listTasks)
 	mux.HandleFunc("POST /api/tasks", s.createTask)
+	// 项目资料（新建任务上传的授权书/范围/评分规则）：draft 暂存 + 任务详情读取。
+	mux.HandleFunc("POST /api/tasks/project-docs", s.uploadProjectDoc)
+	mux.HandleFunc("GET /api/tasks/project-docs", s.listDraftProjectDocs)
+	mux.HandleFunc("DELETE /api/tasks/project-docs", s.deleteDraftProjectDoc)
+	mux.HandleFunc("GET /api/tasks/{id}/project-docs", s.listTaskProjectDocs)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("POST /api/tasks/{id}/control", s.control)
 	mux.HandleFunc("PATCH /api/tasks/{id}", s.editTask)
@@ -1110,24 +1117,31 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := agent.ConfigFrom(req.Provider, req.Model, req.BaseURL, req.APIKey, req.Proxy)
-	// mirror production: send the SAME thinking params so a provider that rejects the
-	// reasoning_effort/thinking field fails the test too (no false "test ok, run 400").
-	cfg.ReasoningEffort = req.ReasoningEffort
-	// 同理带上会话头：opencode 等网关缺会话头直接 400，不带则测试与运行行为不一致。
-	if req.SessionHeaderKey != nil {
-		cfg.SessionHeaderKey = strings.TrimSpace(*req.SessionHeaderKey)
-	}
-	// API Key 解析优先级：表单输入 > 指定 profile 存的 key > 全局配置的 key。
-	// 已存 profile 的 key 不回传浏览器，所以测试已存配置时表单为空，需从 DB 取。
-	if (cfg.APIKey == "" || req.SessionHeaderKey == nil) && req.ProfileID != nil {
+	// 测已存 profile：前端只回传 profile_id，不回传 base_url/model/key。必须用 profile 的
+	// 完整配置（base_url/format/model/key），否则 base_url 为空时 anthropic provider 会默认
+	// 发到 api.anthropic.com → 用别家(如 deepseek)的 key 认证失败(401)。表单显式填了
+	// base_url 则视为新建/编辑测试：只补未回传的 key。
+	if req.ProfileID != nil {
 		if p, err := s.m.pg.ProfileByID(*req.ProfileID); err == nil && p != nil {
-			if cfg.APIKey == "" {
-				cfg.APIKey = p.APIKey
-			}
-			if req.SessionHeaderKey == nil {
-				cfg.SessionHeaderKey = p.SessionHeaderKey
+			if strings.TrimSpace(req.BaseURL) == "" {
+				cfg = agent.ConfigFrom(p.Format, p.Model, p.BaseURL, p.APIKey, strings.TrimSpace(req.Proxy))
+				cfg.ContextWindowK, cfg.ReasoningEffort, cfg.SessionHeaderKey = p.ContextWindowK, p.ReasoningEffort, p.SessionHeaderKey
+			} else {
+				if cfg.APIKey == "" {
+					cfg.APIKey = p.APIKey
+				}
+				if req.SessionHeaderKey == nil {
+					cfg.SessionHeaderKey = p.SessionHeaderKey
+				}
 			}
 		}
+	}
+	// 表单显式覆盖（新建/编辑时填的测试参数）：mirror production 的 thinking 参数 + 会话头。
+	if strings.TrimSpace(req.ReasoningEffort) != "" {
+		cfg.ReasoningEffort = req.ReasoningEffort
+	}
+	if req.SessionHeaderKey != nil {
+		cfg.SessionHeaderKey = strings.TrimSpace(*req.SessionHeaderKey)
 	}
 	if cfg.APIKey == "" {
 		s.cfgMu.Lock()
@@ -1153,6 +1167,7 @@ type createTaskReq struct {
 	LLMProfileID   *int64 `json:"llm_profile_id,omitempty"` // 指定运行本任务的 LLM 配置;省略/null=用激活配置
 	TimeoutSeconds int    `json:"timeout_seconds"`          // 任务级超时(秒);0/省略=不限时
 	Egress         string `json:"egress"`                   // 出口代理:''=跟随全局|'direct'=直连|'proxy'=走全局代理
+	DraftID        string `json:"draft_id,omitempty"`       // 新建任务上传的项目资料暂存 key；建任务后绑定到本任务
 }
 
 func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
@@ -1181,6 +1196,17 @@ func (s *Server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("[task] 新建任务 #%s «%s» 目标: %s", t.ID, req.Description, req.Goal)
+	// 绑定新建任务时上传的项目知识（授权书/范围/评分规则/已获取凭据等）到本任务——随后注入
+	// planner/worker system（确定性必读）；勾选「同时进知识库」的再入任务级 RAG 供语义检索。
+	if draft := strings.TrimSpace(req.DraftID); draft != "" {
+		if tid, err := strconv.ParseInt(t.ID, 10, 64); err == nil {
+			if err := s.m.pg.BindDraftProjectDocs(draft, tid); err != nil {
+				log.Printf("[task] 绑定项目知识失败(draft=%s): %v", draft, err)
+			} else {
+				s.pushProjectDocsToRAG(tid)
+			}
+		}
+	}
 	// seed initial asset(s) from goal/description so the event-driven loop has a root.
 	s.seed(t, req.Description+" "+req.Goal)
 	// Return immediately — goal decomposition is async so the UI isn't blocked.

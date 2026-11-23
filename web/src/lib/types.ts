@@ -862,3 +862,12 @@ export interface KnowledgeLog {
   hits: number;
   created_at: string;
 }
+
+// ProjectDocCard 是「项目知识」(新建任务上传的授权书/范围/评分规则/已获取凭据)的列表卡片，
+// 不含全文(只给 name/chars/preview)。确定性注入 planner/worker system，勾选可另进任务 RAG。
+export interface ProjectDocCard {
+  id: number;
+  name: string;
+  chars: number;
+  preview: string;
+}

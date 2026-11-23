@@ -404,6 +404,10 @@ func (s *Server) seedOrchestrationTools() {
 	s.reseedAgentPrompt("worker", "prompt_reproduction_recipe_v1", "report_finding 填结构化复现过程(就地记录,请求逐字真实)")
 	s.reseedAgentPrompt("pentest", "prompt_reproduction_recipe_pentest_v1", "report_finding 填结构化复现过程")
 	s.reseedAgentPrompt("mainagent", "prompt_reproduction_recipe_mainagent_v1", "report_finding 填结构化复现过程")
+	// 主 agent 回归纯编排：不执行/不运行命令、把意图派给 worker、只记录 worker 已验证的发现。
+	// 配合代码层去掉主 agent 的执行类工具（Bash/Write/Edit）——修"主 agent 绕过规划者自己执行、
+	// 且其执行在对话上下文里暂停停不下来"的问题。
+	s.reseedAgentPrompt("mainagent", "prompt_mainagent_orchestrator_only_v1", "主 agent 回归纯编排（不执行/派发优先/记录 worker 已验证发现）")
 	s.bumpWorkerRunSecondsTo1200() // worker 单轮墙钟 600→1200s（仅未被自定义的默认值；参考 AntiFox 0.3.3）
 	// 注：pentest 的默认工具绑定无需迁移——BuiltinToolSeeds 在全新初始化时就把
 	// list_assets/insert_assets/report_finding/list_findings/list_companies 连同

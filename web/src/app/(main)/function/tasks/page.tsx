@@ -31,15 +31,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -62,6 +62,7 @@ import {
   taskFormToApi,
   type TaskFormValues,
 } from "@/components/task-form-fields";
+import { ProjectKnowledgeUpload } from "@/components/project-knowledge-upload";
 import { api } from "@/lib/api";
 import type { Task, TaskStatus, LLMProfile } from "@/lib/types";
 
@@ -129,6 +130,7 @@ export default function TasksPage() {
     [],
   );
   const [open, setOpen] = React.useState(false); // create dialog
+  const [draftId, setDraftId] = React.useState(""); // 项目知识暂存 key（新建任务上传后得到）
   const [editing, setEditing] = React.useState<Task | null>(null); // edit dialog target
   const [query, setQuery] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState<TaskStatus | "all">("all");
@@ -189,9 +191,10 @@ export default function TasksPage() {
       return;
     }
     try {
-      await api.createTask(v.name, v.description, v.goal, v.llmProfileId, v.timeoutSeconds, v.egress);
+      await api.createTask(v.name, v.description, v.goal, v.llmProfileId, v.timeoutSeconds, v.egress, draftId);
       toast.success(t("tasks.toast.created"));
       setForm(BLANK_TASK_FORM);
+      setDraftId("");
       setOpen(false);
       load();
     } catch (e) {
@@ -293,39 +296,47 @@ export default function TasksPage() {
           <span className="text-muted-foreground text-xs tabular-nums">
             {t("tasks.filterCount", { filtered: filtered.length, total: tasks.length })}
           </span>
-          <Dialog
+          <Sheet
             open={open}
             onOpenChange={(o) => {
-              if (o) setForm(BLANK_TASK_FORM); // fresh form each time create opens
+              if (o) {
+                setForm(BLANK_TASK_FORM); // fresh form each time create opens
+                setDraftId(""); // 新一次新建：清掉上次的项目知识暂存
+              }
               setOpen(o);
             }}
           >
-            <DialogTrigger asChild>
+            <SheetTrigger asChild>
               <Button size="sm" className="ml-auto">
                 <PlusIcon /> {t("tasks.newTask")}
               </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>{t("tasks.newTask")}</DialogTitle>
-                <DialogDescription>
+            </SheetTrigger>
+            <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-3xl">
+              <SheetHeader className="border-b">
+                <SheetTitle>{t("tasks.newTask")}</SheetTitle>
+                <SheetDescription>
                   {t("tasks.dialogDesc")}
-                </DialogDescription>
-              </DialogHeader>
-              <TaskFormFields
-                idPrefix="create"
-                values={form}
-                onChange={patchForm}
-                profiles={profiles}
-              />
-              <DialogFooter>
-                <DialogClose asChild>
+                </SheetDescription>
+              </SheetHeader>
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                <TaskFormFields
+                  idPrefix="create"
+                  values={form}
+                  onChange={patchForm}
+                  profiles={profiles}
+                />
+                <div className="mt-6 border-t pt-6">
+                  <ProjectKnowledgeUpload draftId={draftId} onDraftChange={setDraftId} />
+                </div>
+              </div>
+              <SheetFooter className="flex-row justify-end border-t">
+                <SheetClose asChild>
                   <Button variant="outline">{t("common.cancel")}</Button>
-                </DialogClose>
+                </SheetClose>
                 <Button onClick={createTask}>{t("common.create")}</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
         </div>
 
         {tasks.length === 0 ? (
@@ -478,27 +489,29 @@ export default function TasksPage() {
       </CardContent>
 
       {/* Edit task dialog — shares the create form fields + state. */}
-      <Dialog open={editing !== null} onOpenChange={(o) => { if (!o) setEditing(null); }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("tasks.editTitle")}</DialogTitle>
-            <DialogDescription>{t("tasks.editDialogDesc")}</DialogDescription>
-          </DialogHeader>
-          <TaskFormFields
-            idPrefix="edit"
-            values={form}
-            onChange={patchForm}
-            profiles={profiles}
-            showGoalHint
-          />
-          <DialogFooter>
+      <Sheet open={editing !== null} onOpenChange={(o) => { if (!o) setEditing(null); }}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 data-[side=right]:sm:max-w-3xl">
+          <SheetHeader className="border-b">
+            <SheetTitle>{t("tasks.editTitle")}</SheetTitle>
+            <SheetDescription>{t("tasks.editDialogDesc")}</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <TaskFormFields
+              idPrefix="edit"
+              values={form}
+              onChange={patchForm}
+              profiles={profiles}
+              showGoalHint
+            />
+          </div>
+          <SheetFooter className="flex-row justify-end border-t">
             <Button variant="outline" onClick={() => setEditing(null)}>
               {t("common.cancel")}
             </Button>
             <Button onClick={saveEdit}>{t("common.save")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </Card>
   );
 }

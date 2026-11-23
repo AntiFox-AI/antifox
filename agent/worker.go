@@ -58,6 +58,15 @@ type Worker struct {
 	// trafficResolver, if set, resolves a finding's reproduction steps to real
 	// recorded traffic exchange ids at record time (host callback). nil = no linkage.
 	trafficResolver func(taskID int64, repro json.RawMessage) json.RawMessage
+	// projectDocs, if set, returns a formatted 「项目资料」 block for a task (its
+	// uploaded authorization/scope/scoring docs) to inject into SYSTEM. "" = none.
+	projectDocs func(taskID int64) string
+}
+
+// SetProjectDocsResolver wires the per-task project-docs → SYSTEM-block callback
+// (host-provided; queries task_project_docs). nil = no project-doc injection.
+func (w *Worker) SetProjectDocsResolver(fn func(taskID int64) string) {
+	w.projectDocs = fn
 }
 
 // SetRunTimeout configures the per-intent wall-clock budget for the main
@@ -227,7 +236,11 @@ func (w *Worker) Execute(ctx context.Context, name string, taskID int64, as *db.
 	// user 输入——与 planner 把关键态势放 system 一致。落在指令之后、deferred 块之前。
 	// 全局态势(graphOverviewData)也带上，但仅供了解大局；意图放在最后、最醒目的位置。
 	overview := renderWorkerGraphOverview(tsx.graphOverviewData())
-	system, boundary := deferredSystem(workerSystem(w.proxyAddr, w.workDir)+overview+renderIntentTask(intent), def)
+	project := ""
+	if w.projectDocs != nil {
+		project = w.projectDocs(taskID)
+	}
+	system, boundary := deferredSystem(workerSystem(w.proxyAddr, w.workDir)+project+overview+renderIntentTask(intent), def)
 	// 任务级 deadline(经 ctx 注入)夹逼本 run 的墙钟预算 + 决定收尾词(见 taskclock.go)。
 	tc := taskClockFrom(ctx)
 	maxDur, clamped := clampMaxDuration(tc.DeadlineUnix, w.runTimeout)

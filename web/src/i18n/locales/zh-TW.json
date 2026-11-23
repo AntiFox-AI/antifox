@@ -1252,7 +1252,7 @@
     },
     "globalProxy": {
       "title": "全域出口代理",
-      "desc": "所有 Agent 的<b>目標流量</b>經此代理出網，支援 <b>http / https / socks5</b>，可帶 user:pass 認證。開啟流量擷取時它作為記錄代理的上游；留空=直連。",
+      "desc": "所有 Agent 的<b>目標流量</b>經此代理出網——用於<b>按客戶 / 授權要求從指定出口 IP 發起測試</b>（例如對方只放行特定來源 IP 存取其系統）。支援 <b>http / https / socks5</b>，可帶 user:pass 認證。開啟流量擷取時它作為記錄代理的上游；留空=直連。",
       "test": "測試可用性",
       "testing": "測試中…",
       "testOk": "代理可用 · 出口 IP {{ip}} · {{ms}}ms",
@@ -1557,6 +1557,15 @@
       "genFailed": "報告產生失敗：{{msg}}",
       "docxHint": "「產生 Word 報告」會呼叫 AI 將發現改寫為專業中文敘述，並用 python-docx 排版成交付級 .docx；下方為 Markdown 快速預覽。"
     }
+  },
+  "projectKnowledge": {
+    "label": "專案知識",
+    "hint": "上傳本次測試的授權書 / 測試範圍 / 評分規則 / 已取得憑據等專案專有資訊——Agent 執行時會把這些作為必讀背景嚴格遵守（不越授權邊界、已有憑據直接用、不重複爆破）。勾選可另存入知識庫供語義檢索。",
+    "upload": "上傳檔案",
+    "uploading": "上傳中…",
+    "toRag": "同時存入知識庫（大檔案/參考資料，供語義檢索）",
+    "chars": "{{n}} 字",
+    "formats": "支援 .md / .txt / .csv / .json / .yaml / .docx / .pdf，單檔 ≤ 16MB，每個任務最多 20 個。"
   },
   "tasks": {
     "toast": {

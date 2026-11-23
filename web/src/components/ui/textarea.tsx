@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils"
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
+      // 默认禁用浏览器自动填充/历史建议（同 Input）。
+      autoComplete="off"
       data-slot="textarea"
       className={cn(
         // max-h-[50vh] + overflow-y-auto：field-sizing-content 会随内容自动增高，若不封顶，

@@ -280,6 +280,22 @@ DROP TRIGGER IF EXISTS trg_tasks_upd ON tasks;
 CREATE TRIGGER trg_tasks_upd BEFORE UPDATE ON tasks
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- 项目资料：新建任务时上传的项目专有知识（授权书 / 测试范围 / 评分规则等），内容提取为
+-- 文本，确定性注入 planner+worker 的 system（必读，区别于走语义检索的知识库）。
+-- draft 阶段 task_id 为空、用 draft_id 暂存；建任务时把 draft 的资料绑定到新任务。
+CREATE TABLE IF NOT EXISTS task_project_docs (
+    id         BIGSERIAL PRIMARY KEY,
+    task_id    BIGINT REFERENCES tasks(id) ON DELETE CASCADE,  -- NULL during draft staging
+    draft_id   TEXT NOT NULL DEFAULT '',                       -- staging key; cleared on task create
+    name       TEXT NOT NULL,
+    content    TEXT NOT NULL DEFAULT '',                       -- 提取的文本（截断）
+    to_rag     BOOLEAN NOT NULL DEFAULT false,                 -- 是否也加入任务知识库供语义检索（大文件）
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE task_project_docs ADD COLUMN IF NOT EXISTS to_rag BOOLEAN NOT NULL DEFAULT false;  -- 存量库补列
+CREATE INDEX IF NOT EXISTS idx_task_project_docs_task  ON task_project_docs(task_id)  WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_task_project_docs_draft ON task_project_docs(draft_id) WHERE draft_id <> '';
+
 -- =====================================================================
 -- E. Agents / 提示词模板 / 变量目录
 -- =====================================================================

@@ -16,7 +16,7 @@ import type {
   TaskAssetView, SSProject, SSTask, ConvTokenSummary,
   RBACUser, RBACRole, RBACMe, AuditLog, ReportJob, Enrichment, FindingDetailResp, EnrichJob, FindingEvidenceItem,
   ReportSettings, ReportRecord, ReportTemplate,
-  KnowledgeDoc, KnowledgeHit, KnowledgeConfig, KnowledgeLog,
+  KnowledgeDoc, KnowledgeHit, KnowledgeConfig, KnowledgeLog, ProjectDocCard,
   UpdateCheck,
 } from "@/lib/types";
 
@@ -133,8 +133,26 @@ export const api = {
 
   // ---- tasks ----
   tasks: () => get<{ tasks: Task[]; active: string }>("/tasks").then((r) => ({ tasks: arr(r.tasks), active: r.active ?? "" })),
-  createTask: (name: string, description: string, goal: string, llmProfileId?: number, timeoutSeconds?: number, egress?: string) =>
-    post<Task>("/tasks", { name, description, goal, llm_profile_id: llmProfileId ?? null, timeout_seconds: timeoutSeconds ?? 0, egress: egress ?? "" }),
+  createTask: (name: string, description: string, goal: string, llmProfileId?: number, timeoutSeconds?: number, egress?: string, draftId?: string) =>
+    post<Task>("/tasks", { name, description, goal, llm_profile_id: llmProfileId ?? null, timeout_seconds: timeoutSeconds ?? 0, egress: egress ?? "", draft_id: draftId ?? "" }),
+  // ---- project knowledge (新建任务上传的授权书/范围/评分规则/已获取凭据；确定性注入 planner/worker) ----
+  uploadProjectDoc: async (file: File, draftId: string, toRag: boolean) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    if (draftId) fd.append("draft_id", draftId);
+    fd.append("to_rag", toRag ? "true" : "false");
+    const token = getToken();
+    const r = await fetch(`/api/tasks/project-docs`, { method: "POST", body: fd, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body?.error || `上传失败(${r.status})`);
+    return body as { draft_id: string; doc: { id: number; name: string; bytes: number; to_rag: boolean } };
+  },
+  listDraftProjectDocs: (draftId: string) =>
+    get<{ docs: ProjectDocCard[] }>(`/tasks/project-docs?draft_id=${encodeURIComponent(draftId)}`).then((r) => arr(r.docs)),
+  deleteDraftProjectDoc: (draftId: string, id: number) =>
+    del<{ ok: boolean }>(`/tasks/project-docs?draft_id=${encodeURIComponent(draftId)}&id=${id}`),
+  listTaskProjectDocs: (taskId: string) =>
+    get<{ docs: ProjectDocCard[] }>(`/tasks/${taskId}/project-docs`).then((r) => arr(r.docs)),
   deleteTask: (id: string) => del<{ deleted: number }>(`/tasks/${id}`),
   controlTask: (id: string, action: "pause" | "resume" | "rerun") => post<{ id: string; paused: boolean; status?: string }>(`/tasks/${id}/control`, { action }),
   updateTask: (id: string, body: { name?: string; description?: string; goal?: string; timeout_seconds?: number; llm_profile_id?: number | null; egress?: string }) =>

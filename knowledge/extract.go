@@ -2,12 +2,21 @@ package knowledge
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
+
+// extractTimeout 限定 python 解析子进程的最长运行时间——防恶意/畸形文档（如 zip bomb、
+// 解析器死循环）把子进程挂死造成 DoS。超时即 kill 并返回错误。
+const extractTimeout = 30 * time.Second
 
 // ExtractText returns the plain text of an uploaded document. Text formats are
 // read raw; .docx/.pdf go through a best-effort python extractor. The python is
@@ -17,7 +26,7 @@ import (
 func ExtractText(path string, raw []byte) (string, error) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".md", ".markdown", ".txt", ".text", ".csv", ".json", ".log", ".yaml", ".yml", ".htm", ".html", "":
-		return string(raw), nil
+		return toUTF8(raw), nil
 	case ".docx":
 		return pythonExtract(path, docxPy, "docx", raw)
 	case ".pdf":
@@ -25,6 +34,19 @@ func ExtractText(path string, raw []byte) (string, error) {
 	default:
 		return "", fmt.Errorf("暂不支持的文件类型（支持 .md/.txt/.csv/.json/.docx/.pdf）")
 	}
+}
+
+// toUTF8 保证返回合法 UTF-8：已是 UTF-8 直接用；否则按 GBK 解码（常见的中文文档非 UTF-8
+// 编码，原样入库会触发 PG 的 "invalid byte sequence for encoding UTF8"）；GBK 仍失败则用
+// 替换字符清洗非法字节——确保结果能安全存入 PG 的 text 列。
+func toUTF8(raw []byte) string {
+	if utf8.Valid(raw) {
+		return string(raw)
+	}
+	if dec, err := simplifiedchinese.GBK.NewDecoder().Bytes(raw); err == nil && utf8.Valid(dec) {
+		return string(dec)
+	}
+	return strings.ToValidUTF8(string(raw), "�")
 }
 
 const docxPy = `import sys
@@ -71,10 +93,15 @@ func pythonExtract(path, script, requireMod string, raw []byte) (string, error) 
 	if py == "" {
 		return "", fmt.Errorf("未找到 python3（解析 .docx/.pdf 需 python3 + python-docx / pdfplumber）")
 	}
-	cmd := exec.Command(py, "-c", script, tmp.Name())
+	ctx, cancel := context.WithTimeout(context.Background(), extractTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, py, "-c", script, tmp.Name())
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	out, err := cmd.Output()
+	if ctx.Err() == context.DeadlineExceeded {
+		return "", fmt.Errorf("解析超时（文件过大或格式异常），已中止")
+	}
 	if err != nil {
 		detail := strings.TrimSpace(errb.String())
 		if len(detail) > 400 {
@@ -83,7 +110,7 @@ func pythonExtract(path, script, requireMod string, raw []byte) (string, error) 
 		return "", fmt.Errorf("解析失败（python=%s；如缺库请对该 python 执行 pip install python-docx pdfplumber）: %v: %s",
 			filepath.Base(py), err, detail)
 	}
-	return string(out), nil
+	return toUTF8(out), nil // 保险：python 输出若含非法字节也清洗，防入库触发 UTF8 编码错
 }
 
 // findPythonWith returns the first candidate python3 that can import requireMod.

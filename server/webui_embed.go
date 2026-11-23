@@ -40,8 +40,22 @@ func (s *Server) webuiHandler() http.Handler {
 				return
 			}
 		}
+		// SPA 兜底也是 HTML——必须 no-cache，否则更新后浏览器拿旧 HTML（引用旧 chunk）看旧版。
+		setWebUICache(w, "index.html")
 		http.ServeFileFS(w, r, root, "index.html")
 	})
+}
+
+// setWebUICache sets caching policy by asset kind. HTML（index.html / *.html）必须
+// no-cache——它引用带 hash 的 chunk，更新后 HTML 变、hash 变，HTML 被强缓存会让用户
+// 一直看旧版（自更新后尤其明显）。带 hash 的静态资源（_next/static/**）可长缓存不可变。
+func setWebUICache(w http.ResponseWriter, name string) {
+	switch {
+	case strings.HasPrefix(name, "_next/static/"):
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	case strings.HasSuffix(name, ".html") || name == "index.html":
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 }
 
 // serveFileIfExists serves name from fsys when it exists as a regular file.
@@ -55,6 +69,7 @@ func serveFileIfExists(w http.ResponseWriter, r *http.Request, fsys fs.FS, name 
 	if statErr != nil || st.IsDir() {
 		return false
 	}
+	setWebUICache(w, name)
 	http.ServeFileFS(w, r, fsys, name)
 	return true
 }

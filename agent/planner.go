@@ -39,6 +39,16 @@ type Planner struct {
 	// dispatch it step-by-step over rounds instead of front-loading it in parallel.
 	todoMu sync.Mutex
 	todos  map[int64]*actool.TodoStore
+
+	// projectDocs, if set, returns a formatted 「项目资料」 block for a task (its
+	// uploaded authorization/scope/scoring docs) to inject into SYSTEM. "" = none.
+	projectDocs func(taskID int64) string
+}
+
+// SetProjectDocsResolver wires the per-task project-docs → SYSTEM-block callback
+// (host-provided; queries task_project_docs). nil = no project-doc injection.
+func (p *Planner) SetProjectDocsResolver(fn func(taskID int64) string) {
+	p.projectDocs = fn
 }
 
 func NewPlanner(prov llm.Provider, model, workDir string, tx *transcript.Store, window, maxTurns int) *Planner {
@@ -201,7 +211,11 @@ func (p *Planner) Plan(ctx context.Context, taskID int64, as *db.AssetStore, ts 
 	if tc.Final {
 		situational += "\n\n【任务终局收尾（本轮特殊指令，覆盖上面的常规规划流程）】：" + resolveTaskTimeoutWrapup("planner")
 	}
-	system, boundary := deferredSystem(plannerSystem(goal, p.workDir)+situational, def)
+	project := ""
+	if p.projectDocs != nil {
+		project = p.projectDocs(taskID)
+	}
+	system, boundary := deferredSystem(plannerSystem(goal, p.workDir)+project+situational, def)
 	// planner 无自身墙钟预算;有 deadline 时把 MaxDuration 夹逼到剩余,让在跑的规划轮在
 	// 任务到点时进收尾(因超时→任务超时词,因步数→per-run 词)。
 	maxDur, clamped := clampMaxDuration(tc.DeadlineUnix, 0)

@@ -1252,7 +1252,7 @@
     },
     "globalProxy": {
       "title": "全局出口代理",
-      "desc": "所有 Agent 的<b>目标流量</b>经此代理出网，支持 <b>http / https / socks5</b>，可带 user:pass 认证。开启流量捕获时它作为记录代理的上游；留空=直连。",
+      "desc": "所有 Agent 的<b>目标流量</b>经此代理出网——用于<b>按客户 / 授权要求从指定出口 IP 发起测试</b>（例如对方只放行特定来源 IP 访问其系统）。支持 <b>http / https / socks5</b>，可带 user:pass 认证。开启流量捕获时它作为记录代理的上游；留空=直连。",
       "test": "测试可用性",
       "testing": "测试中…",
       "testOk": "代理可用 · 出口 IP {{ip}} · {{ms}}ms",
@@ -1557,6 +1557,15 @@
       "genFailed": "报告生成失败：{{msg}}",
       "docxHint": "「生成 Word 报告」调用 AI 将发现改写为专业中文叙述，并用 python-docx 排版成交付级 .docx；下方为 Markdown 快速预览。"
     }
+  },
+  "projectKnowledge": {
+    "label": "项目知识",
+    "hint": "上传本次测试的授权书 / 测试范围 / 评分规则 / 已获取凭据等项目专有信息——Agent 执行时会把这些作为必读背景严格遵守（不越授权边界、已有凭据直接用、不重复爆破）。勾选可另存入知识库供语义检索。",
+    "upload": "上传文件",
+    "uploading": "上传中…",
+    "toRag": "同时存入知识库（大文件/参考资料，供语义检索）",
+    "chars": "{{n}} 字",
+    "formats": "支持 .md / .txt / .csv / .json / .yaml / .docx / .pdf，单文件 ≤ 16MB，每个任务最多 20 个。"
   },
   "tasks": {
     "toast": {

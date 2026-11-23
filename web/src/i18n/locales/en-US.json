@@ -1252,7 +1252,7 @@
     },
     "globalProxy": {
       "title": "Global Egress Proxy",
-      "desc": "All agents' <b>target traffic</b> goes out through this proxy. Supports <b>http / https / socks5</b> with optional user:pass auth. When traffic capture is on it acts as the recording proxy's upstream; empty = direct.",
+      "desc": "All agents' <b>target traffic</b> egresses through this proxy — for <b>testing from a specific source IP as required by the client / authorization</b> (e.g. the target only allows a particular source IP). Supports <b>http / https / socks5</b> with optional user:pass auth. When traffic capture is on it acts as the recording proxy's upstream; empty = direct.",
       "test": "Test",
       "testing": "Testing…",
       "testOk": "Proxy works · egress IP {{ip}} · {{ms}}ms",
@@ -1557,6 +1557,15 @@
       "genFailed": "Report generation failed: {{msg}}",
       "docxHint": "\"Generate Word Report\" uses AI to rewrite findings into professional prose and lays it out as a delivery-grade .docx via python-docx; the Markdown quick preview is below."
     }
+  },
+  "projectKnowledge": {
+    "label": "Project knowledge",
+    "hint": "Upload this engagement's authorization letter / test scope / scoring rules / obtained credentials and other project-specific info — agents treat these as must-read context and follow them strictly (stay within authorized scope, use provided credentials directly, don't re-bruteforce). Check the box to also store a file in the knowledge base for semantic search.",
+    "upload": "Upload files",
+    "uploading": "Uploading…",
+    "toRag": "Also store in knowledge base (large files / references, for semantic search)",
+    "chars": "{{n}} chars",
+    "formats": ".md / .txt / .csv / .json / .yaml / .docx / .pdf · ≤ 16MB each · up to 20 per task."
   },
   "tasks": {
     "toast": {
