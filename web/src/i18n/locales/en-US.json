@@ -1620,7 +1620,8 @@
     "goalEditHint": "Changing the goal steers subsequent planning (no automatic re-decompose — pair with \"Continue running\" to act on it).",
     "saved": "Task updated",
     "saveFailed": "Update failed: {{msg}}",
-    "opFailed": "Operation failed: {{msg}}"
+    "opFailed": "Operation failed: {{msg}}",
+    "unnamed": "Unnamed task"
   },
   "findings": {
     "stat": {
@@ -1953,5 +1954,31 @@
     "format": "Format",
     "formatDocx": "Word (.docx)",
     "formatMd": "Markdown bundle (.zip: md+images)"
+  },
+  "sessions": {
+    "listTitle": "Sessions",
+    "taskTokensTitle": "Total tokens across all agents in this task",
+    "taskTotal": "Task total · input {{input}} · cache {{cache}} · output {{output}}",
+    "live": "Live",
+    "interactive": "Interactive",
+    "durationTitle": "Run duration (first step → last step)",
+    "tokenBreakdownTitle": "input / cache(read) / output tokens",
+    "loadingActivity": "Loading activity stream…",
+    "emptyMain": "No conversation yet. Message the Main Agent below to steer exploration or intervene in the flow.",
+    "emptyActivity": "No activity yet.",
+    "inputPlaceholder": "Message the Main Agent to steer exploration…",
+    "stopTitle": "Stop current run",
+    "sendFailed": "(Send failed — please try again later)",
+    "noWorkers": "No running Worker sessions.",
+    "workerTitle": "Worker execution session",
+    "role": {
+      "mainagent": "Main Agent",
+      "planner": "Planner",
+      "worker": "Workers"
+    },
+    "title": {
+      "main": "Main Agent · Orchestration session",
+      "planner": "Planner · Situation assessment"
+    }
   }
 }

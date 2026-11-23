@@ -1620,7 +1620,8 @@
     "goalEditHint": "修改目标会引导后续规划（不会自动重新拆解，请配合「继续运行」使其生效）。",
     "saved": "任务已更新",
     "saveFailed": "更新失败：{{msg}}",
-    "opFailed": "操作失败：{{msg}}"
+    "opFailed": "操作失败：{{msg}}",
+    "unnamed": "未命名任务"
   },
   "findings": {
     "stat": {
@@ -1953,5 +1954,31 @@
     "format": "报告格式",
     "formatDocx": "Word 文档 (.docx)",
     "formatMd": "Markdown 交付包 (.zip：md+截图)"
+  },
+  "sessions": {
+    "listTitle": "会话列表",
+    "taskTokensTitle": "整个任务所有 agent 的 token 合计",
+    "taskTotal": "任务总计 · input {{input}} · cache {{cache}} · output {{output}}",
+    "live": "实时",
+    "interactive": "可交互",
+    "durationTitle": "运行时长（首步 → 末步）",
+    "tokenBreakdownTitle": "input / cache(read) / output tokens",
+    "loadingActivity": "加载活动流…",
+    "emptyMain": "还没有对话。在下方给主 Agent 发消息，引导探索方向或介入流程。",
+    "emptyActivity": "暂无活动记录。",
+    "inputPlaceholder": "给主 Agent 发消息，引导探索方向…",
+    "stopTitle": "停止当前执行",
+    "sendFailed": "（发送失败，请稍后重试）",
+    "noWorkers": "暂无运行中的 Worker 会话。",
+    "workerTitle": "Worker 执行会话",
+    "role": {
+      "mainagent": "主 Agent",
+      "planner": "规划 Planner",
+      "worker": "Workers"
+    },
+    "title": {
+      "main": "主 Agent · 编排会话",
+      "planner": "规划 Planner · 态势研判"
+    }
   }
 }

@@ -1620,7 +1620,8 @@
     "goalEditHint": "修改目標會引導後續規劃（不會自動重新拆解，請搭配「繼續執行」使其生效）。",
     "saved": "任務已更新",
     "saveFailed": "更新失敗：{{msg}}",
-    "opFailed": "操作失敗：{{msg}}"
+    "opFailed": "操作失敗：{{msg}}",
+    "unnamed": "未命名任務"
   },
   "findings": {
     "stat": {
@@ -1953,5 +1954,31 @@
     "format": "報告格式",
     "formatDocx": "Word 文件 (.docx)",
     "formatMd": "Markdown 交付包 (.zip：md+截圖)"
+  },
+  "sessions": {
+    "listTitle": "會話列表",
+    "taskTokensTitle": "整個任務所有 agent 的 token 合計",
+    "taskTotal": "任務總計 · input {{input}} · cache {{cache}} · output {{output}}",
+    "live": "即時",
+    "interactive": "可互動",
+    "durationTitle": "執行時長（首步 → 末步）",
+    "tokenBreakdownTitle": "input / cache(read) / output tokens",
+    "loadingActivity": "載入活動串流…",
+    "emptyMain": "還沒有對話。在下方給主 Agent 發訊息，引導探索方向或介入流程。",
+    "emptyActivity": "暫無活動記錄。",
+    "inputPlaceholder": "給主 Agent 發訊息，引導探索方向…",
+    "stopTitle": "停止目前執行",
+    "sendFailed": "（發送失敗，請稍後重試）",
+    "noWorkers": "暫無執行中的 Worker 會話。",
+    "workerTitle": "Worker 執行會話",
+    "role": {
+      "mainagent": "主 Agent",
+      "planner": "規劃 Planner",
+      "worker": "Workers"
+    },
+    "title": {
+      "main": "主 Agent · 編排會話",
+      "planner": "規劃 Planner · 態勢研判"
+    }
   }
 }
