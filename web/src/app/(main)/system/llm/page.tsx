@@ -74,6 +74,14 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
   const [cw, setCw] = React.useState("0");
   const [thinkMode, setThinkMode] = React.useState<ThinkMode>("none");
   const [effort, setEffort] = React.useState("high");
+  // ChatGPT subscription profiles default to low reasoning effort.
+  const pickFormat = (f: LLMFormat) => {
+    setFormat(f);
+    if (f === CODEX && thinkMode === "none") {
+      setThinkMode("on");
+      setEffort("low");
+    }
+  };
 
   function reset() {
     setName("");
@@ -155,7 +163,7 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label>{t("llm.format")}</Label>
-              <Select value={format} onValueChange={(v) => setFormat(v as LLMFormat)}>
+              <Select value={format} onValueChange={(v) => pickFormat(v as LLMFormat)}>
                 <SelectTrigger>
                   <SelectValue placeholder={t("llm.selectFormat")} />
                 </SelectTrigger>
@@ -317,6 +325,14 @@ export default function LLMPage() {
   const [cw, setCw] = React.useState("0"); // 上下文窗口(K tokens);0=默认200K
   const [thinkMode, setThinkMode] = React.useState<ThinkMode>("none");
   const [effort, setEffort] = React.useState("high");
+  // ChatGPT subscription profiles default to low reasoning effort.
+  const pickFormat = (f: LLMFormat) => {
+    setFormat(f);
+    if (f === CODEX && thinkMode === "none") {
+      setThinkMode("on");
+      setEffort("low");
+    }
+  };
   const [testing, setTesting] = React.useState(false);
 
   const [pool, setPool] = React.useState<LLMPoolStatus | null>(null);
@@ -671,7 +687,7 @@ export default function LLMPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label>{t("llm.format")}</Label>
-                    <Select value={format} onValueChange={(v) => setFormat(v as LLMFormat)}>
+                    <Select value={format} onValueChange={(v) => pickFormat(v as LLMFormat)}>
                       <SelectTrigger>
                         <SelectValue placeholder={t("llm.selectFormat")} />
                       </SelectTrigger>

@@ -95,6 +95,11 @@ func (p *openaiResponsesProvider) buildBody(req CompletionRequest, stream bool) 
 		if body.Instructions == "" {
 			body.Instructions = "You are a helpful assistant." // required field
 		}
+		// Default to low effort when unset (thinking mode "default"); an explicit
+		// "off" (ThinkingType disabled) or per-request "disabled" sends none.
+		if body.Reasoning == nil && req.Thinking != "disabled" && p.cfg.ThinkingType != "disabled" {
+			body.Reasoning = &orReasoning{Effort: "low"}
+		}
 		if body.Reasoning != nil {
 			if body.Reasoning.Effort == "max" {
 				body.Reasoning.Effort = "high"

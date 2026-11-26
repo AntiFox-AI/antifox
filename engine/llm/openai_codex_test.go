@@ -101,3 +101,35 @@ func TestCodexNeedsTokenSource(t *testing.T) {
 		t.Fatal("expected error without a token source")
 	}
 }
+
+func TestCodexReasoningDefaultsLow(t *testing.T) {
+	effort := func(cfg Config, req CompletionRequest) any {
+		cfg.Format, cfg.TokenSource = FormatOpenAICodex, &fakeTokens{}
+		p, err := NewProvider(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := p.(*openaiResponsesProvider).buildBody(req, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		_ = json.Unmarshal(raw, &m)
+		if r, ok := m["reasoning"].(map[string]any); ok {
+			return r["effort"]
+		}
+		return nil
+	}
+	if e := effort(Config{}, CompletionRequest{}); e != "low" {
+		t.Errorf("unset effort = %v, want low", e)
+	}
+	if e := effort(Config{ReasoningEffort: "medium", ThinkingType: "enabled"}, CompletionRequest{}); e != "medium" {
+		t.Errorf("explicit effort = %v, want medium", e)
+	}
+	if e := effort(Config{ThinkingType: "disabled"}, CompletionRequest{}); e != nil {
+		t.Errorf("thinking off should omit reasoning, got %v", e)
+	}
+	if e := effort(Config{}, CompletionRequest{Thinking: "disabled"}); e != nil {
+		t.Errorf("per-request disabled should omit reasoning, got %v", e)
+	}
+}
