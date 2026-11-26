@@ -1,35 +1,35 @@
-# 更新日志 · Changelog
+# Changelog
 
-本项目的版本更新摘要。格式参考 [Keep a Changelog](https://keepachangelog.com/)，版本遵循 [SemVer](https://semver.org/)。
+A summary of project releases. The format follows [Keep a Changelog](https://keepachangelog.com/), and versions follow [Semantic Versioning](https://semver.org/).
 
 ## v2.1.0
 
-- **项目知识**：新建任务可上传授权书 / 测试范围 / 评分规则 / 已获取凭据等文档，自动纳入本次测试上下文，可选进任务知识库语义检索（支持 md/txt/csv/json/yaml/docx/pdf）。
-- **安全加固**：鉴权 / 限流 / 凭据处理加固，admin 首次登录强制改密。
-- **多架构镜像**：发布产物支持 linux/amd64 + arm64。
-- 若干 LLM 网关兼容性与稳定性改进。
+- **Project knowledge:** New tasks can upload authorization letters, test scopes, scoring rules, obtained credentials, and other documents. These documents are automatically included in the task context and can optionally be indexed for semantic search in the task knowledge base (supports Markdown, text, PDF, and Office files).
+- **Security hardening:** Strengthened authentication, rate limiting, and credential handling; administrators must change their password on first login.
+- **Multi-architecture images:** Release artifacts support `linux/amd64` and `linux/arm64`.
+- Several LLM gateway compatibility and stability improvements.
 
 ## v2.0.3
 
-- **LLM 自定义会话头**：每个 LLM 配置可设一个 HTTP 头，头值自动为当前会话 session id —— 适配 opencode 等按 session 做提示缓存 / 粘性路由的网关。
-- **全局出口代理**：所有 Agent 的目标流量可经一个出口代理（http/https/socks5）出网，隐藏源 IP / 走跳板；带「测试可用性」（经代理回显出口 IP）。
-- **按任务选出口**：新建任务时可选该任务走全局代理还是直连。
-- **确认即富化**：人工确认漏洞后自动富化成结构化数据，确认即可交付。
-- **报告管理**：新建报告默认只列已确认漏洞（显示状态 / CVSS）；正文复用已富化数据。
-- **证据图注自动填充**：证据截图图注按复现步骤文案自动生成，可编辑。
-- **漏洞详情打磨**：状态下拉、分区标题、一键复制。
-- **流量任务筛选修复**：按任务筛选叠加任务活动时间窗，同一目标多次测试不再串流量。
-- 系统配置页改为双列自适应布局。
+- **Custom LLM session headers:** Each LLM configuration can define one HTTP header whose value is automatically set to the current session ID, supporting gateways such as OpenCode that use session IDs for prompt caching or sticky routing.
+- **Global egress proxy:** All agent target traffic can leave through a single HTTP, HTTPS, or SOCKS5 egress proxy. Includes an availability test that reports the externally visible IP address.
+- **Per-task egress selection:** New tasks can choose between the global proxy and a direct connection.
+- **Confirmation triggers enrichment:** Human-confirmed findings are automatically converted into structured data and immediately prepared for delivery.
+- **Report management:** Newly created reports include only confirmed findings by default, with status and CVSS details; report bodies reuse enriched finding data.
+- **Automatic evidence annotations:** Evidence screenshot captions are generated from reproduction-step text and remain editable.
+- **Finding detail improvements:** Status dropdowns, section headings, and one-click copying.
+- **Traffic filtering fix:** Task filtering now combines with the task activity window, preventing traffic from multiple tests against the same target from being mixed together.
+- The system settings page now uses a responsive two-column layout.
 
 ## v2.0.2
 
-- **一键更新**：从系统配置页检查并安装 GitHub 新版本（SHA256 校验 / 原子换装 / 失败自动回滚），数据不受影响。
-- 发布产物内附 `start.sh` 守护脚本与 systemd 模板。
+- **One-click updates:** Check for and install GitHub releases from the system settings page, with SHA-256 verification, atomic replacement, and automatic rollback on failure. Existing data is preserved.
+- Release artifacts now include the `start.sh` daemon script and a systemd template.
 
 ## v2.0.1
 
-- 复现步骤落库时自动关联真实流量包。
+- Reproduction steps now automatically link to captured real traffic packets.
 
 ## v2.0.0
 
-- 证据驱动交付：复现过程就地落库、发现页按利用链分步、每步关联真实流量包；人工级三语报告。
+- Evidence-driven delivery: reproduction steps are recorded in place, findings are presented as step-by-step kill chains, and every step is linked to real traffic; supports human-grade trilingual reports.
