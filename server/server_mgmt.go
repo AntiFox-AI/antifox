@@ -1540,6 +1540,9 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		db.LLMProfile
 		APIKey string `json:"api_key"`
+		// OAuthState: a finished "Sign in with ChatGPT" whose credential this
+		// openai-codex profile should store (tokens never round-trip the browser).
+		OAuthState string `json:"oauth_state"`
 	}
 	if err := decode(r, &body); err != nil {
 		writeErr(w, 400, err.Error())
@@ -1547,6 +1550,31 @@ func (s *Server) pgSaveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p := body.LLMProfile
 	p.APIKey = body.APIKey
+	if p.Format == "openai-codex" {
+		p.APIKey = "" // only a server-side sign-in credential is accepted
+		if body.OAuthState != "" {
+			cred, hint, ok := s.codexCredentialFor(body.OAuthState)
+			if !ok {
+				writeErr(w, 400, "ChatGPT sign-in not finished or expired — sign in again")
+				return
+			}
+			p.APIKey, p.APIKeyHint = cred, hint
+		} else if p.ID == 0 {
+			writeErr(w, 400, "Sign in with ChatGPT before saving this profile")
+			return
+		} else if old, _ := pg.ProfileByID(p.ID); old == nil || old.Format != "openai-codex" {
+			writeErr(w, 400, "Sign in with ChatGPT before switching this profile to the ChatGPT subscription format")
+			return
+		} else {
+			p.APIKeyHint = old.APIKeyHint // keep plan · email label
+		}
+	} else if p.ID != 0 && p.APIKey == "" {
+		// Leaving the ChatGPT format: the stored OAuth credential is not an API key.
+		if old, _ := pg.ProfileByID(p.ID); old != nil && old.Format == "openai-codex" {
+			writeErr(w, 400, "Enter an API key for the new format")
+			return
+		}
+	}
 	id, err := pg.SaveProfile(&p)
 	if err != nil {
 		writeErr(w, 500, err.Error())

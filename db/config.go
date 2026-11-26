@@ -119,7 +119,9 @@ func (d *DB) ProfileByID(id int64) (*LLMProfile, error) {
 // SaveProfile inserts (id==0) or updates a profile. Empty apiKey on update keeps existing.
 func (d *DB) SaveProfile(p *LLMProfile) (int64, error) {
 	hint := p.APIKeyHint
-	if len(p.APIKey) >= 4 {
+	// openai-codex stores an OAuth credential JSON; the caller supplies a readable
+	// hint (plan · email) — a "last 4 chars" hint would just show `"}`.
+	if len(p.APIKey) >= 4 && p.Format != "openai-codex" {
 		hint = "…" + p.APIKey[len(p.APIKey)-4:]
 	}
 	if p.ID == 0 {
@@ -137,6 +139,15 @@ VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$
 	_, err := d.Exec(`UPDATE llm_profiles SET name=$1,format=$2,base_url=NULLIF($3,''),proxy=NULLIF($4,''),model=$5,api_key=$6,api_key_hint=$7,rate_per_second=$8,rate_per_minute=$9,context_window_k=$10,reasoning_effort=$11,session_header_key=$12 WHERE id=$13`,
 		p.Name, p.Format, p.BaseURL, p.Proxy, p.Model, p.APIKey, hint, p.RatePerSecond, p.RatePerMinute, p.ContextWindowK, p.ReasoningEffort, p.SessionHeaderKey, p.ID)
 	return p.ID, err
+}
+
+// UpdateCodexCredential writes a refreshed ChatGPT OAuth credential back to every
+// openai-codex profile signed in to that account (OpenAI rotates refresh tokens, so
+// a stale copy would stop working).
+func (d *DB) UpdateCodexCredential(accountID, credJSON, hint string) error {
+	_, err := d.Exec(`UPDATE llm_profiles SET api_key=$1, api_key_hint=$2
+WHERE format='openai-codex' AND COALESCE(api_key,'') LIKE '{%' AND (api_key::jsonb)->>'account_id' = $3`, credJSON, hint, accountID)
+	return err
 }
 
 func (d *DB) DeleteProfile(id int64) error {

@@ -1057,6 +1057,26 @@
       "cannotDeleteActive": "无法删除当前激活的 Profile",
       "deleted": "已删除 Profile：{{name}}",
       "deleteFailed": "删除失败：{{msg}}"
+    },
+    "formatCodex": "OpenAI（ChatGPT 订阅）",
+    "chatgpt": {
+      "title": "ChatGPT 账号",
+      "desc": "使用你的 ChatGPT Plus / Pro / Team 订阅代替 API Key。点击登录会在新标签页打开 OpenAI 登录页。",
+      "signIn": "使用 ChatGPT 登录",
+      "signInAgain": "重新登录",
+      "signedIn": "已登录：{{label}}",
+      "signedInNew": "已登录 {{label}}——保存后生效",
+      "waiting": "请在浏览器新标签页中完成登录…",
+      "cancel": "取消",
+      "pasteHint": "标签页显示“无法连接 localhost”？复制其地址栏中的完整网址并粘贴到这里。",
+      "pastePlaceholder": "http://localhost:1455/auth/callback?code=…",
+      "pasteSubmit": "提交",
+      "listenWarn": "此环境无法自动回跳（{{msg}}）。登录后请粘贴地址。",
+      "popupBlocked": "浏览器拦截了新标签页——请允许本站弹窗后重试。",
+      "failed": "ChatGPT 登录失败：{{msg}}",
+      "ok": "已登录 ChatGPT：{{label}}",
+      "needSignIn": "请先使用 ChatGPT 登录",
+      "notSignedIn": "未登录"
     }
   },
   "rbac": {

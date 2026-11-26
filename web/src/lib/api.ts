@@ -9,7 +9,7 @@ import { MOCK } from "@/lib/mock/enabled";
 import { mockHandle } from "@/lib/mock/handler";
 import type {
   Task, Stats, Asset, AssetNode, Edge, Company, TaskNode, Finding, Activity,
-  Audit, TrafficResp, TrafficDetail, TrafficExchange, Settings, LLMProfile, LLMPoolStatus, Agent, AgentDetail, PromptVar,
+  Audit, TrafficResp, TrafficDetail, TrafficExchange, Settings, LLMProfile, LLMPoolStatus, CodexAuthStatus, Agent, AgentDetail, PromptVar,
   PromptVersion, MCPServer, MCPStat, MCPStatsResp, MCPTool, SkillItem, SkillStatsResp, TokenUsage, TokenTotal, DailyTokenBucket,
   Tool, Conversation, AgentTrigger,
   InterceptRule, InterceptPending, InterceptApprovalRow,
@@ -421,6 +421,7 @@ export const api = {
     reasoning_effort = "",
     profile_id?: number,
     session_header_key = "",
+    oauth_state = "",
   ) =>
     post<{ ok: boolean; error?: string; latency_ms?: number; model?: string }>("/llm/test", {
       provider,
@@ -431,6 +432,7 @@ export const api = {
       reasoning_effort,
       profile_id,
       session_header_key,
+      oauth_state,
     }),
   llmProfiles: () => get<{ profiles: LLMProfile[] }>("/llm/profiles").then((r) => arr(r.profiles)),
   saveLLMProfile: (p: {
@@ -446,7 +448,15 @@ export const api = {
     rate_per_minute?: number;
     context_window_k?: number;
     reasoning_effort?: string; // ""|"off"|"low"|"medium"|"high"|"max"
+    oauth_state?: string; // openai-codex: finished ChatGPT sign-in to store
   }) => post<{ id: number }>("/llm/profiles", p),
+  // Sign in with ChatGPT (openai-codex profiles)
+  codexAuthStart: () =>
+    post<{ auth_url: string; state: string; redirect_uri: string; listen_error?: string }>("/llm/oauth/openai/start", {}),
+  codexAuthStatus: (state: string) =>
+    get<CodexAuthStatus>(`/llm/oauth/openai/status?state=${encodeURIComponent(state)}`),
+  codexAuthComplete: (state: string, redirect_url: string) =>
+    post<CodexAuthStatus>("/llm/oauth/openai/complete", { state, redirect_url }),
   deleteLLMProfile: (id: string) => del<{ deleted: number }>(`/llm/profiles/${id}`),
   activateLLMProfile: (id: string) => post<{ ok: boolean }>("/llm/profiles/active", { id: Number(id) }),
   // LLM 轮询(故障转移)

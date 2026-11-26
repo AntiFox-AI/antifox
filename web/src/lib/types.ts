@@ -468,10 +468,18 @@ export interface UpdateProgress {
 }
 
 // ---- LLM config ----
+// "openai-codex" = ChatGPT subscription via "Sign in with ChatGPT" (no API key).
+export type LLMFormat = "openai" | "anthropic" | "openai-codex";
+export interface CodexAuthStatus {
+  status: "pending" | "done" | "error";
+  email?: string;
+  plan?: string;
+  error?: string;
+}
 export interface LLMProfile {
   id: string;
   name: string;
-  format: "openai" | "anthropic";
+  format: LLMFormat;
   base_url?: string;
   proxy?: string;
   model: string;

@@ -25,8 +25,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
-import type { LLMProfile, LLMPoolStatus } from "@/lib/types";
+import type { LLMFormat, LLMProfile, LLMPoolStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+import { ChatGPTSignIn } from "./chatgpt-signin";
+
+const CODEX: LLMFormat = "openai-codex";
+function formatFromStore(f?: string): LLMFormat {
+  if (f === "anthropic" || f === CODEX) return f;
+  return "openai";
+}
+const modelPlaceholder = (f: LLMFormat) => (f === CODEX ? "gpt-5-codex" : "claude-opus-4-8");
 
 // 思考强度档位（仅在开关打开时生效）。
 const EFFORT_LEVELS: { value: string; labelKey: string }[] = [
@@ -53,7 +62,8 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
-  const [format, setFormat] = React.useState<"anthropic" | "openai">("anthropic");
+  const [format, setFormat] = React.useState<LLMFormat>("anthropic");
+  const [oauthState, setOauthState] = React.useState(""); // finished ChatGPT sign-in (openai-codex)
   const [model, setModel] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
   const [proxy, setProxy] = React.useState("");
@@ -64,6 +74,14 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
   const [cw, setCw] = React.useState("0");
   const [thinkMode, setThinkMode] = React.useState<ThinkMode>("none");
   const [effort, setEffort] = React.useState("high");
+  // ChatGPT subscription profiles default to low reasoning effort.
+  const pickFormat = (f: LLMFormat) => {
+    setFormat(f);
+    if (f === CODEX && thinkMode === "none") {
+      setThinkMode("on");
+      setEffort("low");
+    }
+  };
 
   function reset() {
     setName("");
@@ -73,6 +91,7 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
     setProxy("");
     setSessionHeaderKey("");
     setApiKey("");
+    setOauthState("");
     setRps("0");
     setRpm("0");
     setCw("0");
@@ -85,6 +104,10 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
       toast.error(t("llm.toast.fillNameModel"));
       return;
     }
+    if (format === CODEX && !oauthState) {
+      toast.error(t("llm.chatgpt.needSignIn"));
+      return;
+    }
     try {
       const { id } = await api.saveLLMProfile({
         name: name.trim(),
@@ -92,8 +115,9 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
         model: model.trim(),
         base_url: baseUrl.trim(),
         proxy: proxy.trim(),
-        session_header_key: sessionHeaderKey.trim(),
-        api_key: apiKey,
+        session_header_key: format === CODEX ? "" : sessionHeaderKey.trim(),
+        api_key: format === CODEX ? "" : apiKey,
+        oauth_state: format === CODEX ? oauthState : undefined,
         rate_per_second: Number(rps) || 0,
         rate_per_minute: Number(rpm) || 0,
         context_window_k: Number(cw) || 0,
@@ -139,13 +163,14 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label>{t("llm.format")}</Label>
-              <Select value={format} onValueChange={(v) => setFormat(v as "anthropic" | "openai")}>
+              <Select value={format} onValueChange={(v) => pickFormat(v as LLMFormat)}>
                 <SelectTrigger>
                   <SelectValue placeholder={t("llm.selectFormat")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="anthropic">Anthropic</SelectItem>
                   <SelectItem value="openai">OpenAI</SelectItem>
+                  <SelectItem value="openai-codex">{t("llm.formatCodex")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -154,22 +179,25 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
               <Input
                 id="np-model"
                 className="font-mono"
-                placeholder="claude-opus-4-8"
+                placeholder={modelPlaceholder(format)}
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
               />
             </div>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="np-base-url">{t("llm.baseUrlLabel")}</Label>
-            <Input
-              id="np-base-url"
-              className="font-mono"
-              placeholder="https://api.openai.com/v1"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-            />
-          </div>
+          {format === CODEX && <ChatGPTSignIn onSignedIn={setOauthState} />}
+          {format !== CODEX && (
+            <div className="grid gap-2">
+              <Label htmlFor="np-base-url">{t("llm.baseUrlLabel")}</Label>
+              <Input
+                id="np-base-url"
+                className="font-mono"
+                placeholder="https://api.openai.com/v1"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+              />
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="np-proxy">{t("llm.proxyLabel")}</Label>
             <Input
@@ -180,27 +208,31 @@ function NewProfileDialog({ onCreated }: { onCreated: (id: string) => void }) {
               onChange={(e) => setProxy(e.target.value)}
             />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="np-session-header">{t("llm.sessionHeaderLabel")}</Label>
-            <Input
-              id="np-session-header"
-              className="font-mono"
-              placeholder="x-opencode-session"
-              value={sessionHeaderKey}
-              onChange={(e) => setSessionHeaderKey(e.target.value)}
-            />
-            <p className="text-muted-foreground text-xs">{t("llm.sessionHeaderDesc")}</p>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="np-api-key">API Key</Label>
-            <Input
-              id="np-api-key"
-              type="password"
-              placeholder="sk-…"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </div>
+          {format !== CODEX && (
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor="np-session-header">{t("llm.sessionHeaderLabel")}</Label>
+                <Input
+                  id="np-session-header"
+                  className="font-mono"
+                  placeholder="x-opencode-session"
+                  value={sessionHeaderKey}
+                  onChange={(e) => setSessionHeaderKey(e.target.value)}
+                />
+                <p className="text-muted-foreground text-xs">{t("llm.sessionHeaderDesc")}</p>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="np-api-key">API Key</Label>
+                <Input
+                  id="np-api-key"
+                  type="password"
+                  placeholder="sk-…"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                />
+              </div>
+            </>
+          )}
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="grid gap-2">
               <Label htmlFor="np-rps">{t("llm.ratePerSecond")}</Label>
@@ -279,7 +311,8 @@ export default function LLMPage() {
   const { t } = useTranslation();
   const [profiles, setProfiles] = React.useState<LLMProfile[]>([]);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
-  const [format, setFormat] = React.useState<"anthropic" | "openai">("anthropic");
+  const [format, setFormat] = React.useState<LLMFormat>("anthropic");
+  const [oauthState, setOauthState] = React.useState(""); // finished ChatGPT sign-in (openai-codex)
   const [name, setName] = React.useState("");
   const [model, setModel] = React.useState("");
   const [baseUrl, setBaseUrl] = React.useState("");
@@ -292,6 +325,14 @@ export default function LLMPage() {
   const [cw, setCw] = React.useState("0"); // 上下文窗口(K tokens);0=默认200K
   const [thinkMode, setThinkMode] = React.useState<ThinkMode>("none");
   const [effort, setEffort] = React.useState("high");
+  // ChatGPT subscription profiles default to low reasoning effort.
+  const pickFormat = (f: LLMFormat) => {
+    setFormat(f);
+    if (f === CODEX && thinkMode === "none") {
+      setThinkMode("on");
+      setEffort("low");
+    }
+  };
   const [testing, setTesting] = React.useState(false);
 
   const [pool, setPool] = React.useState<LLMPoolStatus | null>(null);
@@ -374,7 +415,8 @@ export default function LLMPage() {
   React.useEffect(() => {
     if (!selected) return;
     setName(selected.name);
-    setFormat(selected.format === "anthropic" ? "anthropic" : "openai");
+    setFormat(formatFromStore(selected.format));
+    setOauthState("");
     setModel(selected.model);
     setBaseUrl(selected.base_url ?? "");
     setProxy(selected.proxy ?? "");
@@ -405,6 +447,7 @@ export default function LLMPage() {
         toStore(thinkMode, effort),
         selectedId ? Number(selectedId) : undefined,
         sessionHeaderKey.trim(),
+        format === CODEX ? oauthState : "",
       );
       if (r.ok) toast.success(t("llm.toast.connectOk", { latency: r.latency_ms ?? "?", model: r.model ?? model }));
       else toast.error(t("llm.toast.connectFailed", { error: r.error ?? t("llm.unknown") }));
@@ -424,6 +467,10 @@ export default function LLMPage() {
       toast.error(t("llm.toast.fillNameModel"));
       return;
     }
+    if (format === CODEX && selected?.format !== CODEX && !oauthState) {
+      toast.error(t("llm.chatgpt.needSignIn"));
+      return;
+    }
     try {
       await api.saveLLMProfile({
         id: Number(selectedId),
@@ -432,8 +479,9 @@ export default function LLMPage() {
         model: model.trim(),
         base_url: baseUrl.trim(),
         proxy: proxy.trim(),
-        session_header_key: sessionHeaderKey.trim(),
-        api_key: apiKey,
+        session_header_key: format === CODEX ? "" : sessionHeaderKey.trim(),
+        api_key: format === CODEX ? "" : apiKey,
+        oauth_state: format === CODEX && oauthState ? oauthState : undefined,
         rate_per_second: Number(rps) || 0,
         rate_per_minute: Number(rpm) || 0,
         context_window_k: Number(cw) || 0,
@@ -441,6 +489,7 @@ export default function LLMPage() {
       });
       toast.success(selected?.is_default ? t("llm.toast.savedActive") : t("llm.toast.saved"));
       setApiKey("");
+      setOauthState("");
       await load();
     } catch (e) {
       toast.error(t("llm.toast.saveFailed", { msg: (e as Error).message }));
@@ -638,13 +687,14 @@ export default function LLMPage() {
                   </div>
                   <div className="grid gap-2">
                     <Label>{t("llm.format")}</Label>
-                    <Select value={format} onValueChange={(v) => setFormat(v as "anthropic" | "openai")}>
+                    <Select value={format} onValueChange={(v) => pickFormat(v as LLMFormat)}>
                       <SelectTrigger>
                         <SelectValue placeholder={t("llm.selectFormat")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="anthropic">Anthropic</SelectItem>
                         <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="openai-codex">{t("llm.formatCodex")}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -655,22 +705,31 @@ export default function LLMPage() {
                   <Input
                     id="model"
                     className="font-mono"
-                    placeholder="claude-opus-4-8"
+                    placeholder={modelPlaceholder(format)}
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                   />
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="base-url">{t("llm.baseUrlLabel")}</Label>
-                  <Input
-                    id="base-url"
-                    className="font-mono"
-                    placeholder="https://api.openai.com/v1"
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
+                {format === CODEX && (
+                  <ChatGPTSignIn
+                    key={selectedId ?? ""}
+                    savedHint={selected.format === CODEX ? keyHint : undefined}
+                    onSignedIn={setOauthState}
                   />
-                </div>
+                )}
+                {format !== CODEX && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="base-url">{t("llm.baseUrlLabel")}</Label>
+                    <Input
+                      id="base-url"
+                      className="font-mono"
+                      placeholder="https://api.openai.com/v1"
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                    />
+                  </div>
+                )}
 
                 <div className="grid gap-2">
                   <Label htmlFor="proxy">{t("llm.proxyLabel")}</Label>
@@ -684,28 +743,32 @@ export default function LLMPage() {
                   <p className="text-muted-foreground text-xs">{t("llm.proxyDesc")}</p>
                 </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="session-header">{t("llm.sessionHeaderLabel")}</Label>
-                  <Input
-                    id="session-header"
-                    className="font-mono"
-                    placeholder="x-opencode-session"
-                    value={sessionHeaderKey}
-                    onChange={(e) => setSessionHeaderKey(e.target.value)}
-                  />
-                  <p className="text-muted-foreground text-xs">{t("llm.sessionHeaderDesc")}</p>
-                </div>
+                {format !== CODEX && (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="session-header">{t("llm.sessionHeaderLabel")}</Label>
+                      <Input
+                        id="session-header"
+                        className="font-mono"
+                        placeholder="x-opencode-session"
+                        value={sessionHeaderKey}
+                        onChange={(e) => setSessionHeaderKey(e.target.value)}
+                      />
+                      <p className="text-muted-foreground text-xs">{t("llm.sessionHeaderDesc")}</p>
+                    </div>
 
-                <div className="grid gap-2">
-                  <Label htmlFor="api-key">API Key</Label>
-                  <Input
-                    id="api-key"
-                    type="password"
-                    placeholder={keyHint ? t("llm.keySetHint", { hint: keyHint }) : "sk-…"}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
-                </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="api-key">API Key</Label>
+                      <Input
+                        id="api-key"
+                        type="password"
+                        placeholder={keyHint ? t("llm.keySetHint", { hint: keyHint }) : "sk-…"}
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">

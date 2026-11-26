@@ -1057,6 +1057,26 @@
       "cannotDeleteActive": "Cannot delete the currently active Profile",
       "deleted": "Profile deleted: {{name}}",
       "deleteFailed": "Delete failed: {{msg}}"
+    },
+    "formatCodex": "OpenAI (ChatGPT subscription)",
+    "chatgpt": {
+      "title": "ChatGPT account",
+      "desc": "Uses your ChatGPT Plus / Pro / Team subscription instead of an API key. Sign in opens OpenAI's login page in a new tab.",
+      "signIn": "Sign in with ChatGPT",
+      "signInAgain": "Sign in again",
+      "signedIn": "Signed in: {{label}}",
+      "signedInNew": "Signed in as {{label}} — save to apply",
+      "waiting": "Finish signing in in the browser tab…",
+      "cancel": "Cancel",
+      "pasteHint": "Tab shows \"can't connect to localhost\"? Copy the full address from its address bar and paste it here.",
+      "pastePlaceholder": "http://localhost:1455/auth/callback?code=…",
+      "pasteSubmit": "Submit",
+      "listenWarn": "Automatic return isn't available here ({{msg}}). Paste the address after signing in.",
+      "popupBlocked": "The browser blocked the new tab — allow pop-ups for this site and try again.",
+      "failed": "ChatGPT sign-in failed: {{msg}}",
+      "ok": "Signed in to ChatGPT as {{label}}",
+      "needSignIn": "Sign in with ChatGPT first",
+      "notSignedIn": "Not signed in"
     }
   },
   "rbac": {

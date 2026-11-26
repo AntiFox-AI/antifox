@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS llm_profiles (
     id               BIGSERIAL PRIMARY KEY,
     name             TEXT NOT NULL UNIQUE,
-    format           TEXT NOT NULL CHECK (format IN ('openai','anthropic')),
+    format           TEXT NOT NULL CHECK (format IN ('openai','anthropic','openai-codex')),
     base_url         TEXT,
     proxy            TEXT,
     model            TEXT NOT NULL,
@@ -233,6 +233,9 @@ CREATE TRIGGER trg_llm_upd BEFORE UPDATE ON llm_profiles
 -- LLM 轮询(故障转移)：priority=链序权重(DESC，激活配置永远居首)；pool_exclude=不作为兜底目标。
 ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS priority     INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS pool_exclude BOOLEAN NOT NULL DEFAULT false;
+-- openai-codex = ChatGPT 订阅 (Sign in with ChatGPT)；api_key 存 OAuth 凭据 JSON。旧库的 CHECK 需重建。
+ALTER TABLE llm_profiles DROP CONSTRAINT IF EXISTS llm_profiles_format_check;
+ALTER TABLE llm_profiles ADD CONSTRAINT llm_profiles_format_check CHECK (format IN ('openai','anthropic','openai-codex'));
 -- 自定义会话头：非空时每次 LLM 请求带上该 HTTP 头(头值=当前会话 session id)，供按 session
 -- 做提示缓存/粘性路由的网关(如 opencode zen)。空=不发送。
 ALTER TABLE llm_profiles ADD COLUMN IF NOT EXISTS session_header_key TEXT NOT NULL DEFAULT '';

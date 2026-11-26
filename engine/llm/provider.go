@@ -44,7 +44,17 @@ const (
 	// FormatOpenAIResponses speaks the OpenAI Responses API (POST /v1/responses),
 	// distinct from FormatOpenAI's Chat Completions (/chat/completions).
 	FormatOpenAIResponses Format = "openai-responses"
+	// FormatOpenAICodex speaks the Responses API against the ChatGPT-subscription
+	// backend (chatgpt.com/backend-api/codex), authenticated with OAuth tokens
+	// from "Sign in with ChatGPT" instead of an API key. Requires TokenSource.
+	FormatOpenAICodex Format = "openai-codex"
 )
+
+// TokenSource supplies OAuth bearer tokens for FormatOpenAICodex. force=true
+// asks for a refresh even if the current token looks valid (used after a 401).
+type TokenSource interface {
+	Token(ctx context.Context, force bool) (accessToken, accountID string, err error)
+}
 
 // Config configures the built-in providers (FR-03.4).
 type Config struct {
@@ -77,6 +87,9 @@ type Config struct {
 	// to "reasoning_effort"; for Anthropic to "output_config":{"effort":...}.
 	// Typical values: low / medium / high / max.
 	ReasoningEffort string
+
+	// TokenSource authenticates FormatOpenAICodex requests (APIKey is ignored).
+	TokenSource TokenSource
 
 	limiter *rateLimiter // built from RateLimit by NewProvider; shared via the provider
 }
@@ -145,10 +158,22 @@ func NewProvider(cfg Config) (Provider, error) {
 			cfg.BaseURL = envOr("OPENAI_BASE_URL", "https://api.openai.com/v1")
 		}
 		return &openaiResponsesProvider{cfg: cfg}, nil
+	case FormatOpenAICodex:
+		if cfg.TokenSource == nil {
+			return nil, fmt.Errorf("llm: openai-codex needs a ChatGPT sign-in (no token source)")
+		}
+		if cfg.BaseURL == "" {
+			cfg.BaseURL = "https://chatgpt.com/backend-api/codex"
+		}
+		return &openaiResponsesProvider{cfg: cfg, codex: true}, nil
 	default:
-		return nil, fmt.Errorf("llm: unknown format %q (use anthropic, openai or openai-responses)", cfg.Format)
+		return nil, fmt.Errorf("llm: unknown format %q (use anthropic, openai, openai-responses or openai-codex)", cfg.Format)
 	}
 }
+
+// NewHTTPClient is the exported form of the built-in client builder (proxy
+// semantics identical to Config.Proxy), for callers that talk to auth endpoints.
+func NewHTTPClient(proxy string) (*http.Client, error) { return defaultHTTPClient(proxy) }
 
 // defaultHTTPClient builds the built-in HTTP client. A non-empty proxy
 // ("http://", "https://" or "socks5://") routes every request through it;
