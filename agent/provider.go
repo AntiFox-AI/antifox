@@ -21,6 +21,7 @@ import (
 	"antifox/engine/llm"
 	acperm "antifox/engine/permission"
 	"antifox/engine/transcript"
+	"antifox/openaiauth"
 )
 
 // Config describes the LLM backend resolved from the environment.
@@ -145,6 +146,14 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 		Proxy:   strings.TrimSpace(proxy),
 	}
 	switch strings.TrimSpace(provider) {
+	case string(llm.FormatOpenAICodex):
+		// ChatGPT subscription: APIKey holds the stored OAuth credential JSON;
+		// BaseURL is normally empty (provider defaults to the ChatGPT backend).
+		c.Format = llm.FormatOpenAICodex
+		c.BaseURL = strings.TrimRight(strings.TrimSuffix(c.BaseURL, "/responses"), "/")
+		if c.Model == "" {
+			c.Model = "gpt-5-codex"
+		}
 	case "openai":
 		c.Format = llm.FormatOpenAI
 		// provider appends "/chat/completions"; tolerate a full endpoint URL.
@@ -165,6 +174,9 @@ func ConfigFrom(provider, model, baseURL, apiKey, proxy string) Config {
 
 // Provider returns the short provider name ("anthropic"/"openai").
 func (c Config) Provider() string {
+	if c.Format == llm.FormatOpenAICodex {
+		return string(llm.FormatOpenAICodex)
+	}
 	if c.Format == llm.FormatOpenAI {
 		return "openai"
 	}
@@ -204,6 +216,20 @@ func (c Config) NewProvider() (llm.Provider, error) {
 			return nil, err
 		}
 		lc.HTTPClient = client
+	}
+	if c.Format == llm.FormatOpenAICodex {
+		// One shared, self-refreshing token source per ChatGPT account (process-wide),
+		// so every agent/report/test path on this account refreshes in one place.
+		authClient, err := llm.NewHTTPClient(c.Proxy)
+		if err != nil {
+			return nil, err
+		}
+		src, err := openaiauth.SourceFor(c.APIKey, authClient)
+		if err != nil {
+			return nil, err
+		}
+		lc.TokenSource = src
+		lc.APIKey = ""
 	}
 	return llm.NewProvider(lc)
 }

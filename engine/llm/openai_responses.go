@@ -21,7 +21,14 @@ import (
 //
 // It is stateless: store is false and the full history is sent every call, so it
 // composes with the host's own transcript/compaction (no previous_response_id).
-type openaiResponsesProvider struct{ cfg Config }
+//
+// With codex=true it targets the ChatGPT-subscription backend instead: OAuth
+// bearer + chatgpt-account-id headers, streaming only (Complete streams and
+// accumulates), and no max_output_tokens / temperature (rejected there).
+type openaiResponsesProvider struct {
+	cfg   Config
+	codex bool
+}
 
 // ---- request ----
 
@@ -38,7 +45,8 @@ type orReq struct {
 }
 
 type orReasoning struct {
-	Effort string `json:"effort"`
+	Effort  string `json:"effort"`
+	Summary string `json:"summary,omitempty"`
 }
 
 // orInputItem is a union: a message (Role+Content string, no Type) or a typed
@@ -79,6 +87,20 @@ func (p *openaiResponsesProvider) buildBody(req CompletionRequest, stream bool) 
 	}
 	for _, t := range req.Tools {
 		body.Tools = append(body.Tools, orTool{Type: "function", Name: t.Name, Description: t.Description, Parameters: t.InputSchema})
+	}
+	if p.codex {
+		body.Stream = true       // the ChatGPT backend only streams
+		body.MaxOutputTokens = 0 // unsupported parameter there
+		body.Temperature = nil
+		if body.Instructions == "" {
+			body.Instructions = "You are a helpful assistant." // required field
+		}
+		if body.Reasoning != nil {
+			if body.Reasoning.Effort == "max" {
+				body.Reasoning.Effort = "high"
+			}
+			body.Reasoning.Summary = "auto" // stream reasoning summaries as thinking
+		}
 	}
 	return json.Marshal(body)
 }
@@ -128,6 +150,35 @@ func (p *openaiResponsesProvider) setHeaders(r *http.Request) {
 	r.Header.Set("authorization", "Bearer "+p.cfg.APIKey)
 }
 
+// post sends body to /responses. For codex it authenticates with the OAuth
+// token source and, on a 401, forces one token refresh and retries.
+func (p *openaiResponsesProvider) post(ctx context.Context, body []byte, accept string) (*http.Response, error) {
+	if !p.codex {
+		return doStream(ctx, p.cfg, p.cfg.BaseURL+"/responses", body, func(r *http.Request) {
+			p.setHeaders(r)
+			r.Header.Set("accept", accept)
+		}, "openai-responses")
+	}
+	for attempt := 0; ; attempt++ {
+		tok, acct, err := p.cfg.TokenSource.Token(ctx, attempt > 0)
+		if err != nil {
+			return nil, fmt.Errorf("openai-codex: status 401: ChatGPT token refresh failed — sign in again: %w", err)
+		}
+		resp, err := doStream(ctx, p.cfg, p.cfg.BaseURL+"/responses", body, func(r *http.Request) {
+			r.Header.Set("content-type", "application/json")
+			r.Header.Set("authorization", "Bearer "+tok)
+			r.Header.Set("chatgpt-account-id", acct)
+			r.Header.Set("openai-beta", "responses=experimental")
+			r.Header.Set("originator", "codex_cli_rs")
+			r.Header.Set("accept", "text/event-stream")
+		}, "openai-codex")
+		if err != nil && attempt == 0 && strings.Contains(err.Error(), "status 401") {
+			continue
+		}
+		return resp, err
+	}
+}
+
 // ---- streaming ----
 
 func (p *openaiResponsesProvider) Stream(ctx context.Context, req CompletionRequest) iter.Seq2[StreamEvent, error] {
@@ -137,12 +188,9 @@ func (p *openaiResponsesProvider) Stream(ctx context.Context, req CompletionRequ
 			yield(StreamEvent{}, err)
 			return
 		}
-		resp, err := doStream(ctx, p.cfg, p.cfg.BaseURL+"/responses", body, func(r *http.Request) {
-			p.setHeaders(r)
-			// Keep application/json acceptable: some gateways 406 a bare
-			// text/event-stream Accept even when stream:true (see openai.go).
-			r.Header.Set("accept", "text/event-stream, application/json")
-		}, "openai-responses")
+		// Keep application/json acceptable: some gateways 406 a bare
+		// text/event-stream Accept even when stream:true (see openai.go).
+		resp, err := p.post(ctx, body, "text/event-stream, application/json")
 		if err != nil {
 			yield(StreamEvent{}, err)
 			return
@@ -249,14 +297,14 @@ func parseResponsesFrame(event, data string) (StreamEvent, bool, error) {
 // ---- non-streaming ----
 
 func (p *openaiResponsesProvider) Complete(ctx context.Context, req CompletionRequest) (Message, string, Usage, error) {
+	if p.codex {
+		return p.completeViaStream(ctx, req)
+	}
 	body, err := p.buildBody(req, false)
 	if err != nil {
 		return Message{}, "", Usage{}, err
 	}
-	resp, err := doStream(ctx, p.cfg, p.cfg.BaseURL+"/responses", body, func(r *http.Request) {
-		p.setHeaders(r)
-		r.Header.Set("accept", "application/json")
-	}, "openai-responses")
+	resp, err := p.post(ctx, body, "application/json")
 	if err != nil {
 		return Message{}, "", Usage{}, err
 	}
@@ -371,4 +419,28 @@ func parseResponsesResponse(raw []byte) (Message, string, Usage, error) {
 		stop = "max_tokens"
 	}
 	return Message{Role: RoleAssistant, Content: blocks}, stop, usage, nil
+}
+
+// completeViaStream implements Complete for backends that only stream (codex):
+// it consumes the stream and assembles the final message.
+func (p *openaiResponsesProvider) completeViaStream(ctx context.Context, req CompletionRequest) (Message, string, Usage, error) {
+	acc := NewAccumulator()
+	for ev, err := range p.Stream(ctx, req) {
+		if err != nil {
+			return Message{}, "", Usage{}, err
+		}
+		acc.Add(ev)
+	}
+	msg := acc.Message()
+	stop := acc.StopReason
+	if stop == "" || stop == "end_turn" {
+		stop = "end_turn"
+		for _, b := range msg.Content {
+			if b.Type == BlockToolUse {
+				stop = "tool_use"
+				break
+			}
+		}
+	}
+	return msg, stop, acc.Usage, nil
 }

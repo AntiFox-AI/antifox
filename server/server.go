@@ -24,6 +24,7 @@ import (
 	"antifox/agent"
 	"antifox/db"
 	"antifox/llmpool"
+	"antifox/openaiauth"
 	"antifox/report"
 	"antifox/traffic"
 )
@@ -107,6 +108,8 @@ type Server struct {
 	// pool. Outlives any single Pool instance so rebuilding the pool never forgets which
 	// backends are broken; mirrors cooling-off windows to PG so they survive a restart.
 	llmHealth *llmpool.Registry
+	// codexLogin runs "Sign in with ChatGPT" browser logins (openai-codex profiles).
+	codexLogin *openaiauth.LoginManager
 }
 
 // profBundle is a planner/worker pair built from one LLM profile.
@@ -137,6 +140,7 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string) *Serv
 		enrichJobs: map[int64]*enrichJob{}, provCache: map[int64]llm.Provider{}}
 	s.loginLimiter = newLoginLimiter()
 	s.llmHealth = newLLMHealthRegistry(m.pg) // process-wide LLM circuit breaker (restores cooling windows)
+	s.initCodexAuth()
 	// 多用户 RBAC：首启迁移旧单用户密码为内置 admin + 播种角色/权限（幂等）。
 	s.bootstrapRBAC()
 	// 内置 skill 库：把 embed 进二进制的默认 skill 物化到 skillDir（仅缺失时写）。
@@ -299,7 +303,7 @@ func (s *Server) loadLLMConfig() (agent.Config, bool) {
 // saveLLMConfig persists the LLM config as the active "default" profile in PG.
 func (s *Server) saveLLMConfig(cfg agent.Config) {
 	format := cfg.Provider()
-	if format != "anthropic" {
+	if format != "anthropic" && format != "openai-codex" {
 		format = "openai"
 	}
 	var id int64
@@ -776,6 +780,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/llm/profiles", s.pgSaveProfile)
 	mux.HandleFunc("DELETE /api/llm/profiles/{id}", s.pgDeleteProfile)
 	mux.HandleFunc("POST /api/llm/profiles/active", s.pgActivateProfile)
+	// Sign in with ChatGPT (openai-codex profiles)
+	mux.HandleFunc("POST /api/llm/oauth/openai/start", s.codexAuthStart)
+	mux.HandleFunc("GET /api/llm/oauth/openai/status", s.codexAuthStatus)
+	mux.HandleFunc("POST /api/llm/oauth/openai/complete", s.codexAuthComplete)
 	// LLM 轮询(故障转移)
 	mux.HandleFunc("GET /api/llm/pool", s.pgLLMPoolStatus)
 	mux.HandleFunc("POST /api/llm/pool", s.pgSetLLMPool)
@@ -1111,23 +1119,36 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 		ProfileID       *int64 `json:"profile_id"` // 测已存 profile 时传入：api_key 为空则用它存的 key
 		// 会话头名：表单传入即用(含空串=不发)；未传(nil)且指定了 profile 时用其已存值。
 		SessionHeaderKey *string `json:"session_header_key"`
+		// OAuthState: test an openai-codex profile with a just-finished ChatGPT sign-in
+		// that hasn't been saved yet.
+		OAuthState string `json:"oauth_state"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
+	}
+	if req.Provider == "openai-codex" {
+		req.APIKey = "" // never a raw key for this format
+		if req.OAuthState != "" {
+			if c, ok := s.codexLogin.Peek(req.OAuthState); ok {
+				req.APIKey = c.JSON()
+			}
+		}
 	}
 	cfg := agent.ConfigFrom(req.Provider, req.Model, req.BaseURL, req.APIKey, req.Proxy)
 	// 测已存 profile：前端只回传 profile_id，不回传 base_url/model/key。必须用 profile 的
 	// 完整配置（base_url/format/model/key），否则 base_url 为空时 anthropic provider 会默认
 	// 发到 api.anthropic.com → 用别家(如 deepseek)的 key 认证失败(401)。表单显式填了
 	// base_url 则视为新建/编辑测试：只补未回传的 key。
-	if req.ProfileID != nil {
+	// A fresh ChatGPT sign-in (oauth_state) wins over the saved profile's credential.
+	freshCodex := req.Provider == "openai-codex" && req.APIKey != ""
+	if req.ProfileID != nil && !freshCodex {
 		if p, err := s.m.pg.ProfileByID(*req.ProfileID); err == nil && p != nil {
-			if strings.TrimSpace(req.BaseURL) == "" {
+			if strings.TrimSpace(req.BaseURL) == "" && p.Format == req.Provider {
 				cfg = agent.ConfigFrom(p.Format, p.Model, p.BaseURL, p.APIKey, strings.TrimSpace(req.Proxy))
 				cfg.ContextWindowK, cfg.ReasoningEffort, cfg.SessionHeaderKey = p.ContextWindowK, p.ReasoningEffort, p.SessionHeaderKey
 			} else {
-				if cfg.APIKey == "" {
+				if cfg.APIKey == "" && p.Format == req.Provider {
 					cfg.APIKey = p.APIKey
 				}
 				if req.SessionHeaderKey == nil {
@@ -1145,8 +1166,14 @@ func (s *Server) testLLM(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.APIKey == "" {
 		s.cfgMu.Lock()
-		cfg.APIKey = s.llmCfg.APIKey
+		if s.llmCfg.Format == cfg.Format { // never reuse another format's credential
+			cfg.APIKey = s.llmCfg.APIKey
+		}
 		s.cfgMu.Unlock()
+	}
+	if cfg.APIKey == "" && cfg.Provider() == "openai-codex" {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": "Sign in with ChatGPT first"})
+		return
 	}
 	if cfg.APIKey == "" {
 		writeJSON(w, 200, map[string]any{"ok": false, "error": "未提供 API Key"})

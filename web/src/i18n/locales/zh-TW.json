@@ -1057,6 +1057,26 @@
       "cannotDeleteActive": "無法刪除目前啟用的 Profile",
       "deleted": "已刪除 Profile：{{name}}",
       "deleteFailed": "刪除失敗：{{msg}}"
+    },
+    "formatCodex": "OpenAI（ChatGPT 訂閱）",
+    "chatgpt": {
+      "title": "ChatGPT 帳號",
+      "desc": "使用你的 ChatGPT Plus / Pro / Team 訂閱代替 API Key。點擊登入會在新分頁開啟 OpenAI 登入頁。",
+      "signIn": "使用 ChatGPT 登入",
+      "signInAgain": "重新登入",
+      "signedIn": "已登入：{{label}}",
+      "signedInNew": "已登入 {{label}}——儲存後生效",
+      "waiting": "請在瀏覽器新分頁中完成登入…",
+      "cancel": "取消",
+      "pasteHint": "分頁顯示「無法連線 localhost」？複製其網址列中的完整網址並貼到這裡。",
+      "pastePlaceholder": "http://localhost:1455/auth/callback?code=…",
+      "pasteSubmit": "送出",
+      "listenWarn": "此環境無法自動回跳（{{msg}}）。登入後請貼上網址。",
+      "popupBlocked": "瀏覽器封鎖了新分頁——請允許本站彈出視窗後重試。",
+      "failed": "ChatGPT 登入失敗：{{msg}}",
+      "ok": "已登入 ChatGPT：{{label}}",
+      "needSignIn": "請先使用 ChatGPT 登入",
+      "notSignedIn": "未登入"
     }
   },
   "rbac": {
