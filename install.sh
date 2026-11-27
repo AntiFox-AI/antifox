@@ -63,7 +63,7 @@ install_local(){
       local pw; pw="$(ask 'Postgres 密码（回车随机）' "$(rand)")"
       docker run -d --name antifox-pg -p 5432:5432 \
         -e POSTGRES_USER=antifox -e POSTGRES_PASSWORD="$pw" -e POSTGRES_DB=antifox \
-        -v antifox-pg:/var/lib/postgresql/data postgres:16-alpine
+        -v antifox-pg:/var/lib/postgresql/data pgvector/pgvector:pg16
       DB_HOST=127.0.0.1 DB_PORT=5432 DB_USER=antifox DB_PASS="$pw" DB_NAME=antifox DB_SSL=disable ;;
     *)
       DB_HOST="$(ask '数据库地址' 127.0.0.1)"
